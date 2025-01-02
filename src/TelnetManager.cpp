@@ -168,7 +168,7 @@ void TelnetManager::getBrightness(){
 
 void TelnetManager::setTailLength(int value){
     if(value >=1 && value <=30){
-        _ledManager->setFadeValue(value);
+        _ledManager->setFadeAmount(value);
         _telnetClient.printf("Tail length set to %d.\n", value);
         Serial.printf("Tail length set to %d.\n", value);
     }
@@ -178,7 +178,7 @@ void TelnetManager::setTailLength(int value){
 }
 
 void TelnetManager::getTailLength(){
-    int fade = _ledManager->getFadeValue();
+    int fade = _ledManager->getFadeAmount();
     _telnetClient.printf("Current Tail Length: %d\n", fade);
 }
 
