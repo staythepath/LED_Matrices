@@ -64,6 +64,7 @@
       }
     </style>
   </head>
+
   <body>
     <nav>
       <a href="/">Home</a>
@@ -81,8 +82,8 @@
       <h2>Animations</h2>
       <div class="dropdown-container">
         <label for="selAnimation">Select Animation:</label>
+        <!-- No extra button: we do it on 'change' event -->
         <select id="selAnimation"></select>
-        <button id="btnSetAnimation">Set</button>
       </div>
     </div>
 
@@ -98,7 +99,7 @@
 
     <!-- Brightness / Fade / Tail / Spawn / Max Flakes / Speed -->
     <div class="section">
-      <h2>Flake Settings</h2>
+      <h2>Animation Settings</h2>
 
       <div class="slider-container">
         <label>Brightness:</label>
@@ -113,13 +114,13 @@
       </div>
 
       <div class="slider-container">
-        <label>Fade Amount:</label>
+        <label>Fade:</label>
         <input type="range" id="sliderFade" min="0" max="255" value="80" />
         <input type="number" id="numFade" min="0" max="255" value="80" />
       </div>
 
       <div class="slider-container">
-        <label>Tail Length:</label>
+        <label>Length:</label>
         <input type="range" id="sliderTail" min="1" max="30" value="5" />
         <input type="number" id="numTail" min="1" max="30" value="5" />
       </div>
@@ -145,7 +146,7 @@
       </div>
 
       <div class="slider-container">
-        <label>Max Flakes:</label>
+        <label>Max Amount:</label>
         <input
           type="range"
           id="sliderMaxFlakes"
@@ -157,7 +158,7 @@
       </div>
 
       <div class="slider-container">
-        <label>Update Speed (ms):</label>
+        <label>Speed (ms):</label>
         <input
           type="range"
           id="sliderSpeed"
@@ -228,11 +229,11 @@
         logDiv.scrollTop = logDiv.scrollHeight;
       }
 
-      /* ========== Animation Dropdown ========== */
+      /* ========== ANIMATION DROPDOWN ========== */
       const selAnimation = document.getElementById("selAnimation");
-      const btnSetAnimation = document.getElementById("btnSetAnimation");
 
-      btnSetAnimation.addEventListener("click", () => {
+      // 1) We do the immediate switch as soon as user picks from the dropdown:
+      selAnimation.addEventListener("change", () => {
         const val = selAnimation.value;
         fetch(`/api/setAnimation?val=${val}`)
           .then((r) => r.text())
@@ -240,7 +241,7 @@
           .catch((err) => log("setAnimation error: " + err));
       });
 
-      // On load, get list of animations
+      // 2) Function that loads the list of animations from the server
       function loadAnimationList() {
         fetch("/api/listAnimations")
           .then((r) => r.json())
@@ -252,13 +253,12 @@
               opt.innerText = `${idx}: ${animName}`;
               selAnimation.appendChild(opt);
             });
-            // If you want to fetch "getAnimation" to see which one is current,
-            // you'd do that here. For now, we default to 0 on page load.
+            // Optionally fetch current anim from /api/getAnimation if needed
           })
           .catch((err) => log("Error fetching animations: " + err));
       }
 
-      /* ========== Palettes ========== */
+      /* ========== PALETTES ========== */
       const paletteSelect = document.getElementById("paletteSelect");
       const btnSetPalette = document.getElementById("btnSetPalette");
 
@@ -266,22 +266,24 @@
         fetch("/api/getPalette")
           .then((r) => r.json())
           .then((obj) => {
+            // 'obj.current' is 0-based index
             paletteSelect.value = obj.current;
           })
           .catch((err) => log("Palette fetch error: " + err));
       }
+
       btnSetPalette.addEventListener("click", () => {
         const pVal = paletteSelect.value;
         fetch(`/api/setPalette?val=${pVal}`)
           .then((r) => r.text())
           .then((txt) => {
             log(txt);
-            getPalette();
+            // Possibly call getPalette() again if you want to confirm
           })
           .catch((err) => log("setPalette error: " + err));
       });
 
-      /* ========== Sliders & Number inputs ========== */
+      /* ========== SLIDERS + NUMBER BOXES ========== */
       const sBrightness = document.getElementById("sliderBrightness");
       const nBrightness = document.getElementById("numBrightness");
       const sFade = document.getElementById("sliderFade");
@@ -295,7 +297,7 @@
       const sSpeed = document.getElementById("sliderSpeed");
       const tSpeed = document.getElementById("txtSpeed");
 
-      // Reuse your bind logic from before:
+      // Helper to bind a slider & number input to an API call
       function bindSliderAndNumber(
         slider,
         numberInput,
@@ -325,6 +327,7 @@
           sendToApi(apiUrl, slider.value);
         });
       }
+
       function sendToApi(apiUrl, val) {
         fetch(`/api/${apiUrl}?val=${val}`)
           .then((r) => r.text())
@@ -338,7 +341,7 @@
       bindSliderAndNumber(sMaxFlakes, nMaxFlakes, "setMaxFlakes", 10, 500);
       bindSliderAndNumber(sSpawn, nSpawn, "setSpawnRate", 0, 1, true);
 
-      // Speed (log-scale)
+      // Speed (log-scale):
       function sliderToSpeed(slVal) {
         const minSpeed = 10,
           maxSpeed = 60000;
@@ -359,6 +362,7 @@
         const fraction = (scale - minLog) / (maxLog - minLog);
         return Math.round(fraction * 100);
       }
+
       sSpeed.addEventListener("input", () => {
         tSpeed.value = sliderToSpeed(parseInt(sSpeed.value, 10));
       });
@@ -382,7 +386,7 @@
         sendToApi("setSpeed", typedVal);
       });
 
-      /* ========== Panel Buttons ========== */
+      /* ========== PANEL BUTTONS ========== */
       const btnSwapPanels = document.getElementById("btnSwapPanels");
       const selPanelOrder = document.getElementById("selPanelOrder");
       const btnSetPanelOrder = document.getElementById("btnSetPanelOrder");
@@ -419,10 +423,12 @@
           .catch((err) => log("rotatePanel2 error: " + err));
       });
 
-      /* ========== On page load ========== */
+      /* ========== ON PAGE LOAD ========== */
       window.addEventListener("load", () => {
+        // 1) Load animation list
         loadAnimationList();
-        // Palettes
+
+        // 2) Load palette list
         fetch("/api/listPalettes")
           .then((res) => res.json())
           .then((data) => {
@@ -433,46 +439,51 @@
               opt.innerText = `${idx + 1}: ${p}`;
               paletteSelect.appendChild(opt);
             });
-            getPalette();
+            getPalette(); // fetch the current palette index from server
           })
           .catch((err) => log("Error fetching palette list: " + err));
 
-        // brightness
+        // 3) Load current brightness
         fetch("/api/getBrightness")
           .then((r) => r.text())
           .then((val) => {
             sBrightness.value = val;
             nBrightness.value = val;
           });
-        // fade
+
+        // 4) fade
         fetch("/api/getFadeAmount")
           .then((r) => r.text())
           .then((val) => {
             sFade.value = val;
             nFade.value = val;
           });
-        // tail
+
+        // 5) tail
         fetch("/api/getTailLength")
           .then((r) => r.text())
           .then((val) => {
             sTail.value = val;
             nTail.value = val;
           });
-        // spawn
+
+        // 6) spawn
         fetch("/api/getSpawnRate")
           .then((r) => r.text())
           .then((val) => {
             sSpawn.value = val;
             nSpawn.value = val;
           });
-        // max
+
+        // 7) max flakes
         fetch("/api/getMaxFlakes")
           .then((r) => r.text())
           .then((val) => {
             sMaxFlakes.value = val;
             nMaxFlakes.value = val;
           });
-        // speed
+
+        // 8) speed
         fetch("/api/getSpeed")
           .then((r) => r.text())
           .then((val) => {

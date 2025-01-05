@@ -2,14 +2,13 @@
 #include "config.h"
 #include <Arduino.h>
 #include <FastLED.h>
-#include <typeinfo> // Not strictly required if no dynamic_cast
 
 // Animation headers
 #include "animations/BaseAnimation.h"
 #include "animations/TrafficAnimation.h"
 #include "animations/BlinkAnimation.h"
-#include "animations/RainbowWaveAnimation.h"  // NEW
-
+#include "animations/RainbowWaveAnimation.h"  
+#include "animations/MultiSpawnWaveAnimation.h"
 
 // Global CRGB array
 CRGB leds[NUM_LEDS];
@@ -35,11 +34,13 @@ LEDManager::LEDManager()
     createPalettes();
 
     // Add multiple animations to _animationNames
-    _animationNames.push_back("Traffic"); // index = 0
-    _animationNames.push_back("Blink");   // index = 1
-    _animationNames.push_back("RainbowWave"); // index 2
+    _animationNames.push_back("Traffic");     // index = 0
+    _animationNames.push_back("Blink");       // index = 1
+    _animationNames.push_back("RainbowWave"); // index = 2
+    _animationNames.push_back("MultiSpawnWave");// index=3 (NEW)
 }
 
+// Initialize
 void LEDManager::begin() {
     FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, _numLeds)
            .setCorrection(TypicalLEDStrip);
@@ -50,18 +51,19 @@ void LEDManager::begin() {
     setAnimation(0);
 }
 
+// Update
 void LEDManager::update() {
-    // If we have an active animation, let it handle updates
     if (_currentAnimation) {
         _currentAnimation->update();
     }
 }
 
+// Show
 void LEDManager::show() {
     FastLED.show();
 }
 
-// -------------------- Internal Helper: Cleanup Old Animation --------------------
+// Cleanup old animation
 void LEDManager::cleanupAnimation() {
     if (_currentAnimation) {
         delete _currentAnimation;
@@ -69,11 +71,11 @@ void LEDManager::cleanupAnimation() {
     }
 }
 
-// -------------------- createPalettes() --------------------
+// Create palettes
 void LEDManager::createPalettes() {
     ALL_PALETTES = {
         // 1: blu_orange_green
-        { CRGB(0,128,255), CRGB(255,128,0), CRGB(0,200,60), CRGB(64,0,128), CRGB(255,255,64) },
+        { CRGB(0,128,255), CRGB(255,128,0), CRGB(0,200,60), CRGB(64,0,128), CRGB(255,255,64), CRGB(0,0,0) },
         // 2: cool_sunset
         { CRGB(255,100,0), CRGB(255,0,102), CRGB(128,0,128), CRGB(0,255,128), CRGB(255,255,128) },
         // 3: neon_tropical
@@ -93,7 +95,9 @@ void LEDManager::createPalettes() {
         // 10: royal_rainbow
         { CRGB(139,0,0), CRGB(218,165,32), CRGB(255,0,255), CRGB(75,0,130), CRGB(0,100,140) },
         // 11: red
-        { CRGB(139,0,0), CRGB(139,0,0), CRGB(139,0,0), CRGB(139,0,0), CRGB(139,0,0) }
+        { CRGB(139,0,0), CRGB(139,0,0), CRGB(139,0,0), CRGB(139,0,0), CRGB(139,0,0) },
+        // 12:Rainbow
+        { CRGB::Red, CRGB::Orange, CRGB::Yellow, CRGB::Green, CRGB::Blue, CRGB::Indigo, CRGB::Violet }
     };
 
     PALETTE_NAMES = {
@@ -107,33 +111,27 @@ void LEDManager::createPalettes() {
         "fire_and_ice",
         "retro_arcade",
         "royal_rainbow",
-        "red"
+        "red",
+        "rainbow"
     };
 }
 
-// ----------------------------------------------------------------------
 // setAnimation(...)
-// ----------------------------------------------------------------------
 void LEDManager::setAnimation(int animIndex) {
-    // If same, do nothing
     if (animIndex == _currentAnimationIndex) {
         return;
     }
-    // Cleanup old
     cleanupAnimation();
 
-    // Validate index
     if (animIndex < 0 || animIndex >= (int)getAnimationCount()) {
         Serial.println("Invalid animation index.");
         return;
     }
     _currentAnimationIndex = animIndex;
 
-    // Index 0 => Traffic
+    // 0 => Traffic
     if (animIndex == 0) {
         auto traffic = new TrafficAnimation(_numLeds, _brightness);
-
-        // Set initial parameters
         traffic->setAllPalettes(&ALL_PALETTES);
         traffic->setCurrentPalette(currentPalette);
         traffic->setSpawnRate(spawnRate);
@@ -148,35 +146,47 @@ void LEDManager::setAnimation(int animIndex) {
         _currentAnimation->begin();
         Serial.println("Traffic animation selected.");
     }
-    // Index 1 => Blink
+    // 1 => Blink
     else if (animIndex == 1) {
-        // A simple test animation that blinks all LEDs on/off
         auto blink = new BlinkAnimation(_numLeds, _brightness);
-
-        // Optionally, set a custom blink speed or other parameters
-        // blink->setInterval(200); // For faster blinking
-
+        // blink->setInterval(200); // optional
         _currentAnimation = blink;
         _currentAnimation->begin();
         Serial.println("Blink animation selected.");
     }
-
+    // 2 => RainbowWave
     else if (animIndex == 2) {
-    auto rainbow = new RainbowWaveAnimation(_numLeds, _brightness);
+        auto wave = new RainbowWaveAnimation(_numLeds, _brightness);
+        wave->setAllPalettes(&ALL_PALETTES);
+        wave->setCurrentPalette(currentPalette);
+        wave->setUpdateInterval(ledUpdateInterval);
+        wave->setPanelOrder(panelOrder);
+        wave->setRotationAngle1(rotationAngle1);
+        wave->setRotationAngle2(rotationAngle2);
 
-    // If you want to link rotation/panel order:
-    // rainbow->setPanelOrder(panelOrder); // if you define setPanelOrder
-    // rainbow->setRotationAngle1(rotationAngle1);
-    // rainbow->setRotationAngle2(rotationAngle2);
-    // rainbow->setUpdateInterval(ledUpdateInterval);
+        _currentAnimation = wave;
+        _currentAnimation->begin();
+        Serial.println("RainbowWave animation selected.");
+    }
+    // 3 => MultiSpawnWave
+    else if (animIndex == 3) {
+        auto wave = new MultiSpawnWaveAnimation(_numLeds, _brightness);
+        wave->setAllPalettes(&ALL_PALETTES);
+        wave->setCurrentPalette(currentPalette);
+        wave->setUpdateInterval(ledUpdateInterval);
+        wave->setPanelOrder(panelOrder);
+        wave->setRotationAngle1(rotationAngle1);
+        wave->setRotationAngle2(rotationAngle2);
 
-    _currentAnimation = rainbow;
-    _currentAnimation->begin();
-    Serial.println("Rainbow Wave animation selected.");
+        // Possibly set wave->setWaveSpeed(spawnRate), wave->setWaveAmplitude(fadeAmount), wave->setWaveFrequency(tailLength)
+        // if you want those initial values to apply immediately
+
+        _currentAnimation = wave;
+        _currentAnimation->begin();
+        Serial.println("MultiSpawnWave animation selected.");
+    }
 }
-}
 
-// Query which animation is active
 int LEDManager::getAnimation() const {
     return _currentAnimationIndex;
 }
@@ -190,9 +200,7 @@ String LEDManager::getAnimationName(int animIndex) const {
     return "Unknown";
 }
 
-// ----------------------------------------------------------------------
-// BRIGHTNESS
-// ----------------------------------------------------------------------
+// -------------------- BRIGHTNESS --------------------
 void LEDManager::setBrightness(uint8_t brightness) {
     _brightness = brightness;
     FastLED.setBrightness(_brightness);
@@ -206,31 +214,41 @@ void LEDManager::setBrightness(uint8_t brightness) {
         blink->setBrightness(_brightness);
     }
     else if (_currentAnimationIndex == 2 && _currentAnimation) {
-    auto wave = static_cast<RainbowWaveAnimation*>(_currentAnimation);
-    wave->setBrightness(_brightness);
-    } 
+        auto wave = static_cast<RainbowWaveAnimation*>(_currentAnimation);
+        // The wave also can set brightness:
+        wave->setBrightness(_brightness);
+        // (Removed calls to setWaveMorphSpeed / setWaveAmplitude / setWaveFrequency here!)
+    }
 }
 uint8_t LEDManager::getBrightness() const {
     return _brightness;
 }
 
-// ----------------------------------------------------------------------
-// PALETTE
-// ----------------------------------------------------------------------
+// -------------------- PALETTE --------------------
 void LEDManager::setPalette(int paletteIndex) {
     if (paletteIndex >= 0 && paletteIndex < (int)PALETTE_NAMES.size()) {
         currentPalette = paletteIndex;
-        Serial.printf("Palette %d (%s) selected.\n", currentPalette,
-                      PALETTE_NAMES[currentPalette].c_str());
-
-        // If Traffic is selected, set the palette
+        Serial.printf("Palette %d (%s) selected.\n",
+                      currentPalette, PALETTE_NAMES[currentPalette].c_str());
+        
+        // For Traffic (idx=0)
         if (_currentAnimationIndex == 0 && _currentAnimation) {
             auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
             traffic->setCurrentPalette(currentPalette);
         }
-        // Blink doesn't use a palette, so we do nothing
+        // For RainbowWave (idx=2)
+        else if (_currentAnimationIndex == 2 && _currentAnimation) {
+            auto wave = static_cast<RainbowWaveAnimation*>(_currentAnimation);
+            wave->setCurrentPalette(currentPalette);
+        }
+        // ADD THIS for MultiSpawnWave (idx=3)
+        else if (_currentAnimationIndex == 3 && _currentAnimation) {
+            auto multiWave = static_cast<MultiSpawnWaveAnimation*>(_currentAnimation);
+            multiWave->setCurrentPalette(currentPalette);
+        }
     }
 }
+
 int LEDManager::getCurrentPalette() const {
     return currentPalette;
 }
@@ -251,27 +269,41 @@ const std::vector<CRGB>& LEDManager::getCurrentPaletteColors() const {
     return ALL_PALETTES[currentPalette];
 }
 
-// ----------------------------------------------------------------------
-// SPAWN RATE
-// ----------------------------------------------------------------------
-void LEDManager::setSpawnRate(float rate) {
+// -------------------- SPAWN RATE --------------------
+void LEDManager::setSpawnRate(float rate) 
+{
+    // 1) Store globally
     spawnRate = rate;
-    // Only Traffic uses spawnRate
+
+    // 2) If Traffic (index=0)
     if (_currentAnimationIndex == 0 && _currentAnimation) {
         auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
         traffic->setSpawnRate(rate);
     }
+    // 3) RainbowWave (index=2)
+    else if (_currentAnimationIndex == 2 && _currentAnimation) {
+        auto wave = static_cast<RainbowWaveAnimation*>(_currentAnimation);
+        wave->setScrollSpeed(rate);
+    }
+    // 4) MultiSpawnWave (index=3)
+    else if (_currentAnimationIndex == 3 && _currentAnimation) {
+        auto multiWave = static_cast<MultiSpawnWaveAnimation*>(_currentAnimation);
+        multiWave->setWaveSpeed(rate);
+
+        // Force immediate re-init if you want new spawn speeds to show
+        multiWave->begin(); 
+    }
+
+    // If Blink (index=1) doesn't use spawnRate, do nothing
 }
+
 float LEDManager::getSpawnRate() const {
     return spawnRate;
 }
 
-// ----------------------------------------------------------------------
-// MAX "CARS" (similar to old flake logic)
-// ----------------------------------------------------------------------
+// -------------------- MAX "Cars" --------------------
 void LEDManager::setMaxFlakes(int max) {
     maxFlakes = max;
-    // Only Traffic uses maxFlakes
     if (_currentAnimationIndex == 0 && _currentAnimation) {
         auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
         traffic->setMaxCars(max);
@@ -281,34 +313,61 @@ int LEDManager::getMaxFlakes() const {
     return maxFlakes;
 }
 
-// ----------------------------------------------------------------------
-// TAIL + FADE
-// ----------------------------------------------------------------------
+// -------------------- TAIL + FADE --------------------
 void LEDManager::setTailLength(int length) {
+    // 1) Store the new tail length
     tailLength = length;
+
+    // 2) If we're on Traffic (index=0)
     if (_currentAnimationIndex == 0 && _currentAnimation) {
         auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
         traffic->setTailLength(length);
     }
-}
-int LEDManager::getTailLength() const {
-    return tailLength;
+    // 3) If we're on RainbowWave (index=2)
+    else if (_currentAnimationIndex == 2 && _currentAnimation) {
+        auto wave = static_cast<RainbowWaveAnimation*>(_currentAnimation);
+        // e.g. wave->setHorizontalFreq(length);
+        wave->setHorizontalFreq(length);
+    }
+    // 4) If we're on MultiSpawnWave (index=3)
+    else if (_currentAnimationIndex == 3 && _currentAnimation) {
+        auto multiWave = static_cast<MultiSpawnWaveAnimation*>(_currentAnimation);
+        multiWave->setWaveFrequency(length);
+
+        // Re-init so the new freq is used
+        multiWave->begin();
+    }
 }
 
-void LEDManager::setFadeAmount(uint8_t amount) {
+
+void LEDManager::setFadeAmount(uint8_t amount)
+{
+    // 1) store it
     fadeAmount = amount;
+
+    // 2) If Traffic
     if (_currentAnimationIndex == 0 && _currentAnimation) {
         auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
         traffic->setFadeAmount(amount);
     }
-}
-uint8_t LEDManager::getFadeAmount() const {
-    return fadeAmount;
+    // 3) RainbowWave
+    else if (_currentAnimationIndex == 2 && _currentAnimation) {
+        auto wave = static_cast<RainbowWaveAnimation*>(_currentAnimation);
+        wave->setVerticalAmplitude(amount);
+    }
+    // 4) MultiSpawnWave
+    else if (_currentAnimationIndex == 3 && _currentAnimation) {
+        auto multiWave = static_cast<MultiSpawnWaveAnimation*>(_currentAnimation);
+        multiWave->setWaveAmplitude(amount);
+
+        // Re-randomize / re-init so the new amplitude is used
+        multiWave->begin();
+    }
 }
 
-// ----------------------------------------------------------------------
-// PANEL / ROTATION
-// ----------------------------------------------------------------------
+
+
+// -------------------- PANEL / ROTATION --------------------
 void LEDManager::swapPanels() {
     panelOrder = 1 - panelOrder;
     Serial.println("Panels swapped successfully.");
@@ -316,7 +375,12 @@ void LEDManager::swapPanels() {
         auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
         traffic->setPanelOrder(panelOrder);
     }
+    else if(_currentAnimationIndex == 2 && _currentAnimation){
+        auto wave = static_cast<RainbowWaveAnimation*>(_currentAnimation);
+        wave->setPanelOrder(panelOrder);
+    }
 }
+
 void LEDManager::setPanelOrder(String order) {
     if (order.equalsIgnoreCase("left")) {
         panelOrder = 0;
@@ -334,7 +398,12 @@ void LEDManager::setPanelOrder(String order) {
         auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
         traffic->setPanelOrder(panelOrder);
     }
+    else if(_currentAnimationIndex == 2 && _currentAnimation){
+        auto wave = static_cast<RainbowWaveAnimation*>(_currentAnimation);
+        wave->setPanelOrder(panelOrder);
+    }
 }
+
 void LEDManager::rotatePanel(String panel, int angle) {
     if (!(angle == 0 || angle == 90 || angle == 180 || angle == 270)) {
         Serial.printf("Invalid rotation angle: %d\n", angle);
@@ -347,6 +416,10 @@ void LEDManager::rotatePanel(String panel, int angle) {
             auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
             traffic->setRotationAngle1(rotationAngle1);
         }
+        else if(_currentAnimationIndex == 2 && _currentAnimation){
+            auto wave = static_cast<RainbowWaveAnimation*>(_currentAnimation);
+            wave->setRotationAngle1(rotationAngle1);
+        }
     }
     else if (panel.equalsIgnoreCase("PANEL2")) {
         rotationAngle2 = angle;
@@ -354,6 +427,10 @@ void LEDManager::rotatePanel(String panel, int angle) {
         if (_currentAnimationIndex == 0 && _currentAnimation) {
             auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
             traffic->setRotationAngle2(rotationAngle2);
+        }
+        else if(_currentAnimationIndex == 2 && _currentAnimation){
+            auto wave = static_cast<RainbowWaveAnimation*>(_currentAnimation);
+            wave->setRotationAngle2(rotationAngle2);
         }
     }
     else {
@@ -371,31 +448,39 @@ int LEDManager::getRotation(String panel) const {
     return -1;
 }
 
-// ----------------------------------------------------------------------
-// UPDATE SPEED
-// ----------------------------------------------------------------------
+int LEDManager::getTailLength() const {
+    return tailLength;
+}
+uint8_t LEDManager::getFadeAmount() const {
+    return fadeAmount;
+}
+
+
+// -------------------- UPDATE SPEED --------------------
 void LEDManager::setUpdateSpeed(unsigned long speed) {
     if (speed >= 10 && speed <= 60000) {
         ledUpdateInterval = speed;
         Serial.printf("LED update speed set to %lu ms\n", ledUpdateInterval);
 
-        // If you want your TrafficAnimation to also update at 'speed':
+        // Traffic
         if (_currentAnimationIndex == 0 && _currentAnimation) {
             auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
-            traffic->setUpdateInterval(speed); // only if you added such a setter
+            traffic->setUpdateInterval(speed);
         }
-        // For BlinkAnimation, you might do:
+        // Blink
         else if (_currentAnimationIndex == 1 && _currentAnimation) {
             auto blink = static_cast<BlinkAnimation*>(_currentAnimation);
-            blink->setInterval(speed); // only if you want blink speed to match setSpeed
-        } else if (_currentAnimationIndex == 2 && _currentAnimation) {\
+            blink->setInterval(speed);
+        }
+        // RainbowWave
+        else if (_currentAnimationIndex == 2 && _currentAnimation) {
             auto wave = static_cast<RainbowWaveAnimation*>(_currentAnimation);
             wave->setUpdateInterval(speed);
         }
     }
     else {
         Serial.println("Invalid speed. Must be 10..60000.");
-    }   
+    }
 }
 
 unsigned long LEDManager::getUpdateSpeed() const {
