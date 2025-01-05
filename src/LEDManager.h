@@ -5,11 +5,11 @@
 #include <vector>
 #include <Arduino.h>
 
-// Forward declaration for Flake struct
-struct Flake;
-
-// Extern declaration for the global LEDs array
+// Forward-declare the global LEDs array
 extern CRGB leds[];
+
+// Forward-declare the BaseAnimation class
+class BaseAnimation;
 
 // LED Configuration
 #define LED_PIN             21
@@ -18,25 +18,13 @@ extern CRGB leds[];
 #define COLOR_ORDER         GRB
 #define DEFAULT_BRIGHTNESS  30 // Initial brightness (0-255)
 
-// Flake Structure
-struct Flake {
-    int x;
-    int y;
-    int dx;
-    int dy;
-    float frac;
-    CRGB startColor;
-    CRGB endColor;
-    bool bounce;
-};
-
 class LEDManager {
 public:
     LEDManager();
 
-    void begin();            // Initialize FastLED
-    void update();           // Called in loop to run flake effect
-    void show();             // Call FastLED.show()
+    void begin();      // Initialize FastLED
+    void update();     // Called in loop to run _currentAnimation->update()
+    void show();       // FastLED.show()
 
     // ---------- Brightness ----------
     void setBrightness(uint8_t brightness);
@@ -53,20 +41,17 @@ public:
     void setSpawnRate(float rate);
     float getSpawnRate() const;
 
-    // ---------- Max Flakes ----------
+    // ---------- Max "Cars" (was flakes) ----------
     void setMaxFlakes(int max);
     int  getMaxFlakes() const;
 
     // ---------- Tail + Fade ----------
-    // tailLength = # of trailing LEDs behind each flake
-    // fadeAmount = how strongly the matrix is faded each frame (0..255)
     void setTailLength(int length);
     int  getTailLength() const;
-
     void setFadeAmount(uint8_t amount);
     uint8_t getFadeAmount() const;
 
-    // ---------- Panel Order / Rotation ----------
+    // ---------- Panel / Rotation ----------
     void swapPanels();
     void setPanelOrder(String order);
     void rotatePanel(String panel, int angle);
@@ -76,8 +61,13 @@ public:
     void setUpdateSpeed(unsigned long speed);
     unsigned long getUpdateSpeed() const;
 
+    // ---------- Animation Control ----------
+    void setAnimation(int animIndex);
+    int  getAnimation() const;
+    size_t getAnimationCount() const;
+    String getAnimationName(int animIndex) const;
+
 private:
-    // LED stuff
     uint16_t _numLeds;
     uint8_t  _brightness;
 
@@ -86,30 +76,32 @@ private:
     std::vector<String> PALETTE_NAMES;
     int  currentPalette;
 
-    // Flake parameters
-    std::vector<Flake> flakes;
-    float spawnRate;   // 0..1
-    int   maxFlakes;
+    // _currentAnimation points to the active animation
+    BaseAnimation* _currentAnimation;
+    int            _currentAnimationIndex;
+    std::vector<String> _animationNames; // e.g. {"Traffic"}
 
-    // Tail + fade
-    int    tailLength;   // # trailing LEDs
-    uint8_t fadeAmount;  // fadeToBlackBy( fadeAmount )
+    // Common parameters
+    float   spawnRate;
+    int     maxFlakes;
+    int     tailLength;
+    uint8_t fadeAmount;
 
     // Panel
-    int panelOrder;      // 0 = left first, 1 = right first
-    int rotationAngle1;  // 0,90,180,270 for panel1
-    int rotationAngle2;  // 0,90,180,270 for panel2
+    int panelOrder;
+    int rotationAngle1;
+    int rotationAngle2;
 
     // Update timing
     unsigned long ledUpdateInterval;
     unsigned long lastLedUpdate;
 
-    // Internal methods
-    void spawnFlake();
-    void performSnowEffect();
-    CRGB calcColor(float frac, CRGB startColor, CRGB endColor, bool bounce);
-    int getLedIndex(int x, int y) const;
-    void rotateCoordinates(int &x, int &y, int angle) const;
+private:
+    // Creates initial palette data
+    void createPalettes();
+
+    // Clean up any existing animation
+    void cleanupAnimation();
 };
 
 #endif // LEDMANAGER_H

@@ -137,6 +137,42 @@ void WebServerManager::setupRoutes() {
     });
 
     /****************************************************
+     * List Animations
+     ****************************************************/
+    _server.on("/api/listAnimations", HTTP_GET, [](AsyncWebServerRequest *request){
+        String json = "[";
+        for(size_t i=0; i< ledManager.getAnimationCount(); i++){
+            json += "\"" + ledManager.getAnimationName(i) + "\"";
+            if(i < ledManager.getAnimationCount()-1){
+                json += ",";
+            }
+        }
+        json += "]";
+        request->send(200, "application/json", json);
+    });
+
+
+     /****************************************************
+     * Set Animations
+     ****************************************************/
+    _server.on("/api/setAnimation", HTTP_GET, [](AsyncWebServerRequest *request){
+        if(!request->hasParam("val")){
+            request->send(400, "text/plain", "Missing 'val' param");
+            return;
+        }
+        int animIndex = request->getParam("val")->value().toInt();
+        if(animIndex < 0 || animIndex >= (int)ledManager.getAnimationCount()){
+            request->send(400, "text/plain","Invalid animation index");
+            return;
+        }
+        ledManager.setAnimation(animIndex);
+        String msg = "Animation " + String(animIndex) + " ("
+            + ledManager.getAnimationName(animIndex) + ") selected.";
+        request->send(200, "text/plain", msg);
+        Serial.println(msg);
+    });
+
+    /****************************************************
      * API endpoints
      ****************************************************/
     // 1) listPalettes => JSON array of palette names

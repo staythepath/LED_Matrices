@@ -1,26 +1,69 @@
 #include "LEDManager.h"
 #include "config.h"
 #include <Arduino.h>
+#include <FastLED.h>
+#include <typeinfo> // not strictly needed if we’re not using dynamic_cast
+
+// Include your animation headers
+#include "animations/BaseAnimation.h"
+#include "animations/TrafficAnimation.h"
 
 // Global CRGB array
 CRGB leds[NUM_LEDS];
 
-// Constructor
 LEDManager::LEDManager()
     : _numLeds(NUM_LEDS),
       _brightness(DEFAULT_BRIGHTNESS),
       currentPalette(0),
+      _currentAnimation(nullptr),
+      _currentAnimationIndex(-1),
       spawnRate(0.6f),
       maxFlakes(200),
-      tailLength(5),   // example default
-      fadeAmount(80),  // example default
+      tailLength(5),
+      fadeAmount(80),
       panelOrder(0),
       rotationAngle1(90),
       rotationAngle2(90),
       ledUpdateInterval(80),
       lastLedUpdate(0)
 {
-    // Initialize your palettes
+    // Create palettes
+    createPalettes();
+
+    // Only one animation for now: "Traffic"
+    _animationNames.push_back("Traffic");
+}
+
+void LEDManager::begin() {
+    FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, _numLeds).setCorrection(TypicalLEDStrip);
+    FastLED.setBrightness(_brightness);
+    FastLED.clear(true);
+
+    // Optionally auto-select animation 0 at startup
+    setAnimation(0);
+}
+
+void LEDManager::update() {
+    // If we have an active animation, let it handle updates
+    if(_currentAnimation) {
+        _currentAnimation->update();
+    }
+}
+
+void LEDManager::show() {
+    FastLED.show();
+}
+
+// -------------------- Internal Helper to Cleanup Old Animation --------------------
+void LEDManager::cleanupAnimation() {
+    if(_currentAnimation) {
+        delete _currentAnimation;
+        _currentAnimation = nullptr;
+    }
+}
+
+// -------------------- createPalettes() --------------------
+void LEDManager::createPalettes() {
     ALL_PALETTES = {
         // 1: blu_orange_green
         { CRGB(0,128,255), CRGB(255,128,0), CRGB(0,200,60), CRGB(64,0,128), CRGB(255,255,64) },
@@ -61,121 +104,217 @@ LEDManager::LEDManager()
     };
 }
 
-void LEDManager::begin(){
-    FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, _numLeds).setCorrection(TypicalLEDStrip);
-    FastLED.setBrightness(_brightness);
-    FastLED.clear(true);
-}
+// ----------------------------------------------------------------------
+// ANIMATION CHOICE
+// ----------------------------------------------------------------------
+void LEDManager::setAnimation(int animIndex) {
+    // If same, do nothing
+    if(animIndex == _currentAnimationIndex) {
+        return;
+    }
+    // Cleanup old
+    cleanupAnimation();
 
-void LEDManager::update(){
-    unsigned long now = millis();
-    if(now - lastLedUpdate >= ledUpdateInterval){
-        performSnowEffect();
-        lastLedUpdate = now;
+    if(animIndex < 0 || animIndex >= (int)getAnimationCount()){
+        Serial.println("Invalid animation index.");
+        return;
+    }
+    _currentAnimationIndex = animIndex;
+
+    // We only have index 0 => "Traffic"
+    if(animIndex == 0) {
+        auto traffic = new TrafficAnimation(_numLeds, _brightness);
+
+        // Set initial parameters
+        traffic->setAllPalettes(&ALL_PALETTES);
+        traffic->setCurrentPalette(currentPalette);
+        traffic->setSpawnRate(spawnRate);
+        traffic->setMaxCars(maxFlakes);
+        traffic->setTailLength(tailLength);
+        traffic->setFadeAmount(fadeAmount);
+        traffic->setPanelOrder(panelOrder);
+        traffic->setRotationAngle1(rotationAngle1);
+        traffic->setRotationAngle2(rotationAngle2);
+
+        _currentAnimation = traffic;
+        _currentAnimation->begin();
+        Serial.println("Traffic animation selected.");
     }
 }
 
-void LEDManager::show(){
-    FastLED.show();
+int LEDManager::getAnimation() const {
+    return _currentAnimationIndex;
+}
+size_t LEDManager::getAnimationCount() const {
+    return _animationNames.size();
+}
+String LEDManager::getAnimationName(int animIndex) const {
+    if(animIndex >= 0 && animIndex < (int)_animationNames.size()){
+        return _animationNames[animIndex];
+    }
+    return "Unknown";
 }
 
-// -------------------- Brightness --------------------
+// ----------------------------------------------------------------------
+// BRIGHTNESS
+// ----------------------------------------------------------------------
 void LEDManager::setBrightness(uint8_t brightness){
     _brightness = brightness;
-    FastLED.setBrightness(_brightness); 
+    FastLED.setBrightness(_brightness);
+
+    if(_currentAnimationIndex == 0 && _currentAnimation) {
+        // We statically know it's TrafficAnimation
+        auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
+        traffic->setBrightness(_brightness);
+    }
 }
-uint8_t LEDManager::getBrightness() const{
+uint8_t LEDManager::getBrightness() const {
     return _brightness;
 }
 
-// -------------------- Palette --------------------
-void LEDManager::setPalette(int paletteIndex){
+// ----------------------------------------------------------------------
+// PALETTE
+// ----------------------------------------------------------------------
+void LEDManager::setPalette(int paletteIndex) {
     if(paletteIndex >= 0 && paletteIndex < (int)PALETTE_NAMES.size()){
         currentPalette = paletteIndex;
-        Serial.printf("Palette %d (%s) selected.\n", currentPalette+1, PALETTE_NAMES[currentPalette].c_str());
+        Serial.printf("Palette %d (%s) selected.\n", currentPalette, PALETTE_NAMES[currentPalette].c_str());
+
+        if(_currentAnimationIndex == 0 && _currentAnimation){
+            auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
+            traffic->setCurrentPalette(currentPalette);
+        }
     }
 }
-int LEDManager::getCurrentPalette() const{
+int LEDManager::getCurrentPalette() const {
     return currentPalette;
 }
-size_t LEDManager::getPaletteCount() const{
+size_t LEDManager::getPaletteCount() const {
     return PALETTE_NAMES.size();
 }
-String LEDManager::getPaletteNameAt(int index) const{
-    if(index>=0 && index<(int)PALETTE_NAMES.size()){
+String LEDManager::getPaletteNameAt(int index) const {
+    if(index >= 0 && index < (int)PALETTE_NAMES.size()){
         return PALETTE_NAMES[index];
     }
     return "Unknown";
 }
-const std::vector<CRGB>& LEDManager::getCurrentPaletteColors() const{
+const std::vector<CRGB>& LEDManager::getCurrentPaletteColors() const {
+    if(currentPalette < 0 || currentPalette >= (int)ALL_PALETTES.size()){
+        static std::vector<CRGB> dummy;
+        return dummy;
+    }
     return ALL_PALETTES[currentPalette];
 }
 
-// -------------------- Spawn Rate / Max Flakes --------------------
+// ----------------------------------------------------------------------
+// SPAWN RATE
+// ----------------------------------------------------------------------
 void LEDManager::setSpawnRate(float rate){
     spawnRate = rate;
+    if(_currentAnimationIndex == 0 && _currentAnimation){
+        auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
+        traffic->setSpawnRate(rate);
+    }
 }
-float LEDManager::getSpawnRate() const{
+float LEDManager::getSpawnRate() const {
     return spawnRate;
 }
 
+// ----------------------------------------------------------------------
+// MAX "CARS" (was flakes)
+// ----------------------------------------------------------------------
 void LEDManager::setMaxFlakes(int max){
     maxFlakes = max;
+    if(_currentAnimationIndex == 0 && _currentAnimation){
+        auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
+        traffic->setMaxCars(max);
+    }
 }
-int LEDManager::getMaxFlakes() const{
+int LEDManager::getMaxFlakes() const {
     return maxFlakes;
 }
 
-// -------------------- Tail + Fade --------------------
+// ----------------------------------------------------------------------
+// TAIL + FADE
+// ----------------------------------------------------------------------
 void LEDManager::setTailLength(int length){
     tailLength = length;
+    if(_currentAnimationIndex == 0 && _currentAnimation){
+        auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
+        traffic->setTailLength(length);
+    }
 }
-int LEDManager::getTailLength() const{
+int LEDManager::getTailLength() const {
     return tailLength;
 }
+
 void LEDManager::setFadeAmount(uint8_t amount){
     fadeAmount = amount;
+    if(_currentAnimationIndex == 0 && _currentAnimation){
+        auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
+        traffic->setFadeAmount(amount);
+    }
 }
-uint8_t LEDManager::getFadeAmount() const{
+uint8_t LEDManager::getFadeAmount() const {
     return fadeAmount;
 }
 
-// -------------------- Panel / Rotation --------------------
-void LEDManager::swapPanels(){
+// ----------------------------------------------------------------------
+// PANEL / ROTATION
+// ----------------------------------------------------------------------
+void LEDManager::swapPanels() {
     panelOrder = 1 - panelOrder;
     Serial.println("Panels swapped successfully.");
+    if(_currentAnimationIndex == 0 && _currentAnimation){
+        auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
+        traffic->setPanelOrder(panelOrder);
+    }
 }
-void LEDManager::setPanelOrder(String order){
+void LEDManager::setPanelOrder(String order) {
     if(order.equalsIgnoreCase("left")){
-        panelOrder=0;
+        panelOrder = 0;
         Serial.println("Panel order set to left first.");
     }
     else if(order.equalsIgnoreCase("right")){
-        panelOrder=1;
+        panelOrder = 1;
         Serial.println("Panel order set to right first.");
     }
     else{
         Serial.println("Invalid panel order. Use 'left' or 'right'.");
+        return;
+    }
+
+    if(_currentAnimationIndex == 0 && _currentAnimation){
+        auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
+        traffic->setPanelOrder(panelOrder);
     }
 }
 void LEDManager::rotatePanel(String panel, int angle){
-    if(!(angle==0 || angle==90||angle==180||angle==270)){
+    if(!(angle==0 || angle==90 || angle==180 || angle==270)){
         Serial.printf("Invalid rotation angle: %d\n", angle);
         return;
     }
     if(panel.equalsIgnoreCase("PANEL1")){
-        rotationAngle1=angle;
+        rotationAngle1 = angle;
         Serial.printf("Panel1 angle set to %d\n", rotationAngle1);
+        if(_currentAnimationIndex == 0 && _currentAnimation){
+            auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
+            traffic->setRotationAngle1(rotationAngle1);
+        }
     }
     else if(panel.equalsIgnoreCase("PANEL2")){
-        rotationAngle2=angle;
+        rotationAngle2 = angle;
         Serial.printf("Panel2 angle set to %d\n", rotationAngle2);
+        if(_currentAnimationIndex == 0 && _currentAnimation){
+            auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
+            traffic->setRotationAngle2(rotationAngle2);
+        }
     }
     else {
         Serial.println("Unknown panel: use PANEL1 or PANEL2.");
     }
 }
-int LEDManager::getRotation(String panel) const{
+int LEDManager::getRotation(String panel) const {
     if(panel.equalsIgnoreCase("PANEL1")){
         return rotationAngle1;
     }
@@ -186,175 +325,25 @@ int LEDManager::getRotation(String panel) const{
     return -1;
 }
 
-// -------------------- Update Speed --------------------
+// ----------------------------------------------------------------------
+// UPDATE SPEED
+// ----------------------------------------------------------------------
 void LEDManager::setUpdateSpeed(unsigned long speed){
-    if(speed>=10 && speed<=60000){
+    if(speed >= 10 && speed <= 60000){
         ledUpdateInterval = speed;
         Serial.printf("LED update speed set to %lu ms\n", ledUpdateInterval);
+
+        // If we have animation index=0 => Traffic
+        if(_currentAnimationIndex == 0 && _currentAnimation) {
+            auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
+            traffic->setUpdateInterval(ledUpdateInterval);
+        }
     }
     else{
         Serial.println("Invalid speed. Must be 10..60000.");
     }
 }
-unsigned long LEDManager::getUpdateSpeed() const{
+
+unsigned long LEDManager::getUpdateSpeed() const {
     return ledUpdateInterval;
-}
-
-// -------------------- Flake Logic --------------------
-void LEDManager::spawnFlake(){
-    Flake f;
-    int edge = random(0,4);
-
-    // assign random start/end colors from current palette
-    f.startColor = ALL_PALETTES[currentPalette][ random( ALL_PALETTES[currentPalette].size()) ];
-    f.endColor   = ALL_PALETTES[currentPalette][ random( ALL_PALETTES[currentPalette].size()) ];
-    while(f.endColor == f.startColor){
-        f.endColor = ALL_PALETTES[currentPalette][ random(ALL_PALETTES[currentPalette].size()) ];
-    }
-    f.bounce = false;
-    f.frac  = 0.0f;
-
-    switch(edge){
-        case 0: // top
-            f.x = random(0,32);
-            f.y = 0;
-            f.dx=0; f.dy=1;
-            break;
-        case 1: // bottom
-            f.x = random(0,32);
-            f.y = 15;
-            f.dx=0; f.dy=-1;
-            break;
-        case 2: // left
-            f.x=0; 
-            f.y=random(0,16);
-            f.dx=1; f.dy=0;
-            break;
-        case 3: // right
-            f.x=31;
-            f.y=random(0,16);
-            f.dx=-1; f.dy=0;
-            break;
-    }
-    flakes.push_back(f);
-}
-
-void LEDManager::performSnowEffect(){
-    // 1) fade entire matrix by fadeAmount
-    fadeToBlackBy(leds, _numLeds, fadeAmount);
-
-    // 2) chance to spawn new flake
-    if(random(1000) < (int)(spawnRate*1000) && (int)flakes.size()<maxFlakes){
-        spawnFlake();
-    }
-
-    // 3) update flakes
-    for(auto it=flakes.begin(); it!=flakes.end(); ){
-        it->x += it->dx;
-        it->y += it->dy;
-        it->frac += 0.02f;
-
-        // out of bounds -> remove
-        if(it->x<0 || it->x>=32 || it->y<0 || it->y>=16){
-            it = flakes.erase(it);
-            continue;
-        }
-        if(it->frac>1.0f) it->frac=1.0f;
-
-        CRGB mainC = calcColor(it->frac, it->startColor, it->endColor, it->bounce);
-        // scale by overall brightness
-        mainC.nscale8(_brightness);
-
-        int idx = getLedIndex(it->x, it->y);
-        if(idx>=0 && idx<_numLeds){
-            leds[idx] += mainC;
-        }
-
-        // 4) draw tail behind flake
-        // using tailLength to decide how many pixels
-        for(int t=1; t<=tailLength; t++){
-            int tx = it->x - t*it->dx;
-            int ty = it->y - t*it->dy;
-            if(tx<0 || tx>=32|| ty<0|| ty>=16) break;
-
-            int tidx = getLedIndex(tx,ty);
-            if(tidx<0||tidx>=_numLeds) break;
-
-            float fracScale = 1.0f - (float)t/(float)(tailLength+1);
-            uint8_t tailB   = (uint8_t)(_brightness * fracScale);
-
-            if(tailB<10) tailB=10;  // optional min brightness
-            CRGB tailCol = mainC;
-            tailCol.nscale8(tailB);
-            leds[tidx] += tailCol;
-        }
-
-        ++it;
-    }
-}
-
-// blend helper
-CRGB LEDManager::calcColor(float frac, CRGB startColor, CRGB endColor, bool bounce){
-    if(!bounce){
-        return blend(startColor, endColor, (uint8_t)(frac*255));
-    }
-    else{
-        if(frac<=0.5f){
-            return blend(startColor, endColor, (uint8_t)(frac*2*255));
-        } else {
-            return blend(endColor, startColor,(uint8_t)((frac-0.5f)*2*255));
-        }
-    }
-}
-
-// map (x,y)->led index with rotation + panel order
-int LEDManager::getLedIndex(int x, int y) const{
-    int panel = (x<16)?0:1;
-    int localX= (x<16)? x : (x-16);
-    int localY= y;
-
-    // rotate
-    rotateCoordinates(localX, localY, (panel==0) ? rotationAngle1:rotationAngle2);
-
-    // zigzag row
-    if(localY%2!=0){
-        localX = 15 - localX;
-    }
-
-    // panel order
-    int base = (panelOrder==0) ? panel*256 : (1-panel)*256;
-    int idx  = base + localY*16 + localX;
-    if(idx<0||idx>=_numLeds){
-        // out-of-bounds
-        return -1;
-    }
-    return idx;
-}
-
-// rotate coords by angle
-void LEDManager::rotateCoordinates(int &x, int &y, int angle) const{
-    int tmpX, tmpY;
-    switch(angle){
-        case 0:
-            // no rotation
-            break;
-        case 90:
-            tmpX=y;
-            tmpY=15 - x;
-            x=tmpX; y=tmpY;
-            break;
-        case 180:
-            tmpX=15 - x;
-            tmpY=15 - y;
-            x=tmpX; y=tmpY;
-            break;
-        case 270:
-            tmpX=15 - y;
-            tmpY=x;
-            x=tmpX; y=tmpY;
-            break;
-        default:
-            // ignore
-            break;
-    }
 }
