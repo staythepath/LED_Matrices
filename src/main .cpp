@@ -150,4 +150,8 @@ void loop() {
     
     // Ensure FastLED shows the updates
     FastLED.show();
+
+
+    //Serial.println("Free heap: " + String(ESP.getFreeHeap()));
+
 }

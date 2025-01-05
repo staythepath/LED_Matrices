@@ -161,38 +161,39 @@ void WebServerManager::setupRoutes() {
         request->send(200, "application/json", json);
     });
 
-    // 3) setPalette?val=XX => 0-based index
-    // in WebServerManager.cpp
+
+    /****************************************************
+    * setPalette => expects ?val=<0-based index>
+    * Example: /api/setPalette?val=2
+    ****************************************************/
     _server.on("/api/setPalette", HTTP_GET, [](AsyncWebServerRequest *request){
+        // 1) Check for parameter
         if(!request->hasParam("val")){
-            request->send(400, "text/plain", "Missing val param");
+            request->send(400, "text/plain", "Missing 'val' parameter");
             return;
         }
 
-        // Here's your snippet:
-        int userValue = request->getParam("val")->value().toInt();
-        // userValue is 1-based. So if user picks the second palette, userValue = 2.
+        // 2) Convert param to an integer (already 0-based from the web UI)
+        int zeroIndex = request->getParam("val")->value().toInt();
 
-        // Convert it to zero-based:
-        int zeroIndex = userValue - 1;
-
-        // Then check range:
-        if (zeroIndex < 0 || zeroIndex >= (int)ledManager.getPaletteCount()) {
-            // Out of range
+        // 3) Validate range
+        int paletteCount = (int)ledManager.getPaletteCount();
+        if(zeroIndex < 0 || zeroIndex >= paletteCount){
             request->send(400, "text/plain",
-                "Invalid palette. Must be 1.." + String(ledManager.getPaletteCount()));
+                "Invalid palette index. Must be 0.." + String(paletteCount - 1));
             return;
         }
 
-        // Now set the palette with zeroIndex
+        // 4) Set the palette in LEDManager (0-based index)
         ledManager.setPalette(zeroIndex);
 
+        // 5) Respond with success
         String paletteName = ledManager.getPaletteNameAt(zeroIndex);
-        String msg = "Palette " + String(userValue) +
-                    " (" + paletteName + ") selected.";
+        String msg = "Palette " + String(zeroIndex) + " (" + paletteName + ") selected.";
         request->send(200, "text/plain", msg);
         Serial.println(msg);
     });
+
 
 
     // 4) getPalette => returns { current: X, name: "..." }
