@@ -38,6 +38,21 @@ window.addEventListener("load", function () {
   }
 });
 
+function loadAnimationList() {
+  fetch("/api/listAnimations")
+    .then((r) => r.json())
+    .then((data) => {
+      selAnimation.innerHTML = "";
+      data.forEach((animName, idx) => {
+        const opt = document.createElement("option");
+        opt.value = idx;
+        opt.innerText = `${idx}: ${animName}`;
+        selAnimation.appendChild(opt);
+      });
+    })
+    .catch((err) => log("Error fetching animations: " + err));
+}
+
 /********************************************************
  * 1) Define a log scale mapping.
  *    We'll map slider range [0..100] -> speed [10..60000].
