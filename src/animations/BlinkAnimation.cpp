@@ -1,15 +1,20 @@
+// File: BlinkAnimation.cpp
+
 #include "BlinkAnimation.h"
-#include <Arduino.h> // for millis()
+#include <Arduino.h>
 #include <FastLED.h>
 
-extern CRGB leds[]; // from your main or LEDManager
+// Declared in LEDManager.cpp
+extern CRGB leds[];
 
-BlinkAnimation::BlinkAnimation(uint16_t numLeds, uint8_t brightness)
-  : _numLeds(numLeds),
-    _brightness(brightness),
-    _intervalMs(500),    // default half-second blink
-    _lastToggle(0),
-    _isOn(false)
+BlinkAnimation::BlinkAnimation(uint16_t numLeds, uint8_t brightness, int panelCount)
+  : BaseAnimation(numLeds, brightness) // call the base class constructor
+  , _panelCount(panelCount)
+  , _intervalMs(500)
+  , _lastToggle(0)
+  , _isOn(false)
+  , _palette(nullptr)
+  , _paletteIndex(0)
 {
 }
 
@@ -18,33 +23,45 @@ void BlinkAnimation::begin() {
     FastLED.clear(true);
     _isOn = false;
     _lastToggle = millis();
+    _paletteIndex = 0;
 }
 
 void BlinkAnimation::update() {
     unsigned long now = millis();
-    if((now - _lastToggle) >= _intervalMs) {
+    if ((now - _lastToggle) >= _intervalMs) {
         _lastToggle = now;
+        // Toggle state
         _isOn = !_isOn;
 
-        if(_isOn) {
-            // Turn all LEDs on (white, scaled by brightness)
-            for(int i=0; i<_numLeds; i++){
-                leds[i] = CRGB::White;
+        if (_isOn) {
+            // If we have a palette, pick the next color
+            CRGB color = CRGB::White;
+            if (_palette && !_palette->empty()) {
+                color = (*_palette)[_paletteIndex % _palette->size()];
+                _paletteIndex++;
+            }
+            // Fill all
+            for (int i = 0; i < _numLeds; i++) {
+                leds[i] = color;
             }
             FastLED.setBrightness(_brightness);
         } else {
             // Turn all LEDs off
             FastLED.clear(true);
         }
+        FastLED.show();
     }
 }
 
-// Optional setter for brightness
 void BlinkAnimation::setBrightness(uint8_t b) {
     _brightness = b;
 }
 
-// If you want a way to change blink speed
-void BlinkAnimation::setInterval(unsigned long intervalMs){
+void BlinkAnimation::setInterval(unsigned long intervalMs) {
     _intervalMs = intervalMs;
+}
+
+void BlinkAnimation::setPalette(const std::vector<CRGB>* palette) {
+    _palette = palette;
+    _paletteIndex = 0;
 }

@@ -5,26 +5,28 @@
 #include <vector>
 #include <Arduino.h>
 
-// Forward-declare the global LEDs array
-extern CRGB leds[];
+// We still declare a global CRGB array, but we will define its maximum size:
+static const int MAX_LEDS = 16 * 16 * 8; // up to 8 panels of 16x16 = 2048
+extern CRGB leds[MAX_LEDS];
 
-// Forward-declare the BaseAnimation class
+// Forward-declare BaseAnimation
 class BaseAnimation;
 
-// LED Configuration
-#define LED_PIN             21
-#define NUM_LEDS            512
-#define LED_TYPE            WS2812B
-#define COLOR_ORDER         GRB
-#define DEFAULT_BRIGHTNESS  30 // Initial brightness (0-255)
-
+/**
+ * The LEDManager now manages a dynamic panel count.
+ * Each panel is 16x16, so total LED count = panelCount * 16 * 16.
+ */
 class LEDManager {
 public:
     LEDManager();
 
-    void begin();      // Initialize FastLED
-    void update();     // Called in loop to run _currentAnimation->update()
-    void show();       // FastLED.show()
+    void begin();
+    void update();
+    void show();
+
+    // ---------- Panel Count ----------
+    void setPanelCount(int count);  // e.g. 1..8
+    int  getPanelCount() const;
 
     // ---------- Brightness ----------
     void setBrightness(uint8_t brightness);
@@ -41,7 +43,7 @@ public:
     void setSpawnRate(float rate);
     float getSpawnRate() const;
 
-    // ---------- Max "Cars" (was flakes) ----------
+    // ---------- Max "Cars" ----------
     void setMaxFlakes(int max);
     int  getMaxFlakes() const;
 
@@ -68,18 +70,24 @@ public:
     String getAnimationName(int animIndex) const;
 
 private:
+    // The current number of 16×16 panels
+    int _panelCount;     // default: 3
+
+    // The actual LED count (panelCount * 16 * 16)
     uint16_t _numLeds;
+
+    // Brightness
     uint8_t  _brightness;
 
     // Palettes
     std::vector<std::vector<CRGB>> ALL_PALETTES;
-    std::vector<String> PALETTE_NAMES;
-    int  currentPalette;
+    std::vector<String>            PALETTE_NAMES;
+    int                            currentPalette;
 
-    // _currentAnimation points to the active animation
+    // The active animation
     BaseAnimation* _currentAnimation;
     int            _currentAnimationIndex;
-    std::vector<String> _animationNames; // e.g. {"Traffic"}
+    std::vector<String> _animationNames;
 
     // Common parameters
     float   spawnRate;
@@ -97,11 +105,11 @@ private:
     unsigned long lastLedUpdate;
 
 private:
-    // Creates initial palette data
     void createPalettes();
-
-    // Clean up any existing animation
     void cleanupAnimation();
+
+    // We can re-initialize FastLED if user changes panel count
+    void reinitFastLED();
 };
 
 #endif // LEDMANAGER_H

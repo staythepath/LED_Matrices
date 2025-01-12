@@ -1,88 +1,81 @@
-#ifndef TRAFFICANIMATION_H
-#define TRAFFICANIMATION_H
+#ifndef TRAFFIC_ANIMATION_H
+#define TRAFFIC_ANIMATION_H
 
-#include "BaseAnimation.h"  // So we can inherit from BaseAnimation
+#include "BaseAnimation.h"
+#include <Arduino.h>
 #include <FastLED.h>
 #include <vector>
 
-// A struct representing one "car" in the Traffic animation
-struct TrafficCar {
-    int x;
-    int y;
-    int dx;
-    int dy;
-    float frac;
-    CRGB startColor;
-    CRGB endColor;
-    bool bounce;
-};
-
+/**
+ * TrafficAnimation that can handle a variable number of 16×16 panels.
+ */
 class TrafficAnimation : public BaseAnimation {
 public:
-    TrafficAnimation(uint16_t numLeds, uint8_t brightness);
+    /**
+     * @param totalLeds  total LED count = panelCount * 16*16
+     * @param brightness initial brightness
+     * @param panelCount how many 16x16 panels
+     */
+    TrafficAnimation(uint16_t totalLeds, uint8_t brightness, int panelCount);
 
-    // BaseAnimation overrides
-    void begin() override;  
+    void begin() override;
     void update() override;
 
-    // Setters
-    void setBrightness(uint8_t b);
+    // Overridden brightness
+    void setBrightness(uint8_t b) override;
+
+    // Additional setters
+    void setUpdateInterval(unsigned long interval);
+    void setPanelOrder(int order);
+    void setRotationAngle1(int angle);
+    void setRotationAngle2(int angle);
+    void setRotationAngle3(int angle);
+
     void setSpawnRate(float rate);
     void setMaxCars(int max);
     void setTailLength(int length);
     void setFadeAmount(uint8_t amount);
     void setCurrentPalette(int index);
     void setAllPalettes(const std::vector<std::vector<CRGB>>* palettes);
-    void setUpdateInterval(unsigned long interval);
-    void setPanelOrder(int order);      // 0=left-first, 1=right-first
-    void setRotationAngle1(int angle);  // 0,90,180,270 for panel1
-    void setRotationAngle2(int angle);  // 0,90,180,270 for panel2
-
-    // Getters
-    float   getSpawnRate() const;
-    int     getMaxCars() const;
-    int     getTailLength() const;
-    uint8_t getFadeAmount() const;
 
 private:
     void performTrafficEffect();
     void spawnCar();
     CRGB calcColor(float frac, CRGB startC, CRGB endC, bool bounce);
-
-    // Mapping (x,y)->LED index, with panel/rotation logic
     int  getLedIndex(int x, int y) const;
     void rotateCoordinates(int &x, int &y, int angle) const;
 
 private:
-    // Dimensions
-    static const int WIDTH  = 32;
-    static const int HEIGHT = 16;
-
-    // For the global CRGB array
-    uint16_t _numLeds;
-    uint8_t  _brightness;
+    // For dynamic panel count
+    int _panelCount;
+    int _width;   // = panelCount * 16
+    int _height;  // = 16
 
     // Palettes
     const std::vector<std::vector<CRGB>>* _allPalettes;
     int   _currentPalette;
 
-    // Data structure for "cars"
-    std::vector<TrafficCar> _cars;
-
-    // Animation parameters
-    float   _spawnRate;   
-    int     _maxCars;
-    int     _tailLength;
-    uint8_t _fadeAmount;
-
-    // Timing
+    // Animation state
+    float      _spawnRate;
+    int        _maxCars;
+    int        _tailLength;
+    uint8_t    _fadeAmount;
     unsigned long _updateInterval;
     unsigned long _lastUpdate;
 
-    // Panel geometry
-    int _panelOrder;      
-    int _rotationAngle1;  
-    int _rotationAngle2;  
+    // Panel/rotation config
+    int _panelOrder;     
+    int _rotationAngle1;
+    int _rotationAngle2;
+    int _rotationAngle3;
+
+    struct TrafficCar {
+        int  x, y, dx, dy;
+        CRGB startColor, endColor;
+        bool bounce;
+        float frac;
+    };
+    std::vector<TrafficCar> _cars;
 };
 
-#endif // TRAFFICANIMATION_H
+#endif // TRAFFIC_ANIMATION_H

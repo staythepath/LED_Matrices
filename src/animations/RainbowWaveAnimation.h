@@ -5,50 +5,55 @@
 #include <FastLED.h>
 
 /**
- * A "Rainbow Wave" animation that scrolls a rainbow horizontally across the matrix.
- * We'll assume a 32x16 layout (Width=32, Height=16), but adapt if needed.
+ * A "Rainbow Wave" animation that scrolls a rainbow horizontally across a variable
+ * number of 16x16 panels. We'll store _panelCount and compute _width=16*_panelCount, 
+ * _height=16, then do the coordinate transformations similarly to Traffic.
  */
 class RainbowWaveAnimation : public BaseAnimation {
 public:
-    RainbowWaveAnimation(uint16_t numLeds, uint8_t brightness);
+    /**
+     * @param numLeds     - total LED count (panelCount * 16 * 16)
+     * @param brightness  - initial brightness
+     * @param panelCount  - how many 16x16 panels
+     */
+    RainbowWaveAnimation(uint16_t numLeds, uint8_t brightness, int panelCount=3);
 
-    // Called once when we select this animation
     void begin() override;
-
-    // Called repeatedly in loop
     void update() override;
 
-    // Setters
-    void setBrightness(uint8_t b);
+    void setBrightness(uint8_t b) override;
     void setUpdateInterval(unsigned long intervalMs);
 
+    // Dynamic panel geometry
+    void setPanelOrder(int order);
+    void setRotationAngle1(int angle);
+    void setRotationAngle2(int angle);
+    void setRotationAngle3(int angle);
+    // If you want more than 3 angle options, you can expand similarly.
+
 private:
-    // Internal logic
-    void fillRainbowWave();
-
-    // For indexing
-    int getLedIndex(int x, int y) const;
-    void rotateCoordinates(int &x, int &y, int angle, bool panel0) const;
-
-private:
-    // Basic info
-    static const int WIDTH = 32;   // If your matrix is 32 wide
-    static const int HEIGHT = 16;  // 16 tall
-
-    uint16_t _numLeds;
-    uint8_t  _brightness;
+    // We'll compute these at construction based on panelCount.
+    int _panelCount;
+    int _width;   // = panelCount * 16
+    int _height;  // = 16
 
     // Timing
-    unsigned long _intervalMs; 
+    unsigned long _intervalMs;
     unsigned long _lastUpdate;
 
-    // "phase" scroll offset
-    uint16_t _phase; // increments to move rainbow horizontally
+    // Phase offset in hue
+    uint8_t       _phase;
 
-    // Panel geometry (like your traffic logic)
-    int _panelOrder;
+    // Panel geometry
+    int _panelOrder; 
     int _rotationAngle1;
     int _rotationAngle2;
+    int _rotationAngle3;
+
+    // Internals
+    void fillRainbowWave();
+    int  getLedIndex(int x, int y) const;
+    void rotateCoordinates(int &x, int &y, int angle) const;
 };
 
 #endif // RAINBOWWAVEANIMATION_H

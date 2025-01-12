@@ -1,47 +1,129 @@
-window.addEventListener("load", function () {
-  // Grab references to our sliders and the <span> elements that show their values
-  let spawnSlider = document.getElementById("spawnSlider");
-  let spawnValue = document.getElementById("spawnValue");
-  let fadeSlider = document.getElementById("fadeSlider");
-  let fadeValue = document.getElementById("fadeValue");
-
-  // Update the displayed text whenever the spawn slider is moved
-  spawnSlider.addEventListener("input", function () {
-    spawnValue.innerText = this.value;
-    // We can immediately send the update to the ESP32
-    sendUpdateToESP32();
-  });
-
-  // Update the displayed text whenever the fade slider is moved
-  fadeSlider.addEventListener("input", function () {
-    fadeValue.innerText = this.value;
-    // We can immediately send the update to the ESP32
-    sendUpdateToESP32();
-  });
-
-  // Function to send the updated slider values to the ESP32
-  function sendUpdateToESP32() {
-    let spawn = spawnSlider.value;
-    let fade = fadeSlider.value;
-    console.log("Sending spawn=" + spawn + ", fade=" + fade);
-
-    // Example endpoint: /setParams?spawn=xxx&fade=xxx
-    // You need a matching route in your code (e.g., in setupRoutes())
-    fetch(`/setParams?spawn=${spawn}&fade=${fade}`)
-      .then((res) => res.text())
-      .then((data) => {
-        console.log("Response from ESP32:", data);
-      })
-      .catch((err) => {
-        console.error("Error:", err);
-      });
+/************************************************
+ * Logging helper
+ ************************************************/
+function log(msg) {
+  console.log(msg);
+  const logDiv = document.getElementById("log");
+  if (logDiv) {
+    logDiv.innerText += msg + "\n";
+    logDiv.scrollTop = logDiv.scrollHeight;
   }
+}
+
+/************************************************
+ * 1) On window load, fetch animations, palettes,
+ *    brightness, speed, panelCount, etc.
+ ************************************************/
+window.addEventListener("load", () => {
+  log("Page loaded, fetching data...");
+
+  // 1) Animations
+  loadAnimationList();
+
+  // 2) Palettes
+  fetch("/api/listPalettes")
+    .then((r) => r.json())
+    .then((data) => {
+      log("Got palettes: " + JSON.stringify(data));
+      const paletteSelect = document.getElementById("paletteSelect");
+      if (!paletteSelect) return;
+      paletteSelect.innerHTML = "";
+      data.forEach((p, idx) => {
+        const opt = document.createElement("option");
+        opt.value = idx;
+        opt.innerText = `${idx + 1}: ${p}`;
+        paletteSelect.appendChild(opt);
+      });
+      getPalette(); // fetch the current palette index from server
+    })
+    .catch((err) => log("Error fetching /api/listPalettes: " + err));
+
+  // 3) Brightness
+  fetch("/api/getBrightness")
+    .then((r) => r.text())
+    .then((val) => {
+      log("Brightness: " + val);
+      const sBrightness = document.getElementById("sliderBrightness");
+      const nBrightness = document.getElementById("numBrightness");
+      if (sBrightness && nBrightness) {
+        sBrightness.value = val;
+        nBrightness.value = val;
+      }
+    });
+
+  // 4) Fade
+  fetch("/api/getFadeAmount")
+    .then((r) => r.text())
+    .then((val) => {
+      log("FadeAmount: " + val);
+      const sFade = document.getElementById("sliderFade");
+      const nFade = document.getElementById("numFade");
+      if (sFade && nFade) {
+        sFade.value = val;
+        nFade.value = val;
+      }
+    });
+
+  // 5) Tail
+  fetch("/api/getTailLength")
+    .then((r) => r.text())
+    .then((val) => {
+      const sTail = document.getElementById("sliderTail");
+      const nTail = document.getElementById("numTail");
+      if (sTail && nTail) {
+        sTail.value = val;
+        nTail.value = val;
+      }
+    });
+
+  // 6) Spawn
+  fetch("/api/getSpawnRate")
+    .then((r) => r.text())
+    .then((val) => {
+      const sSpawn = document.getElementById("sliderSpawn");
+      const nSpawn = document.getElementById("numSpawn");
+      if (sSpawn && nSpawn) {
+        sSpawn.value = val;
+        nSpawn.value = val;
+      }
+    });
+
+  // 7) MaxFlakes
+  fetch("/api/getMaxFlakes")
+    .then((r) => r.text())
+    .then((val) => {
+      const sMaxFlakes = document.getElementById("sliderMaxFlakes");
+      const nMaxFlakes = document.getElementById("numMaxFlakes");
+      if (sMaxFlakes && nMaxFlakes) {
+        sMaxFlakes.value = val;
+        nMaxFlakes.value = val;
+      }
+    });
+
+  // 8) Speed
+  fetch("/api/getSpeed")
+    .then((r) => r.text())
+    .then((val) => {
+      const spd = parseInt(val, 10);
+      if (isNaN(spd)) return;
+      updateSpeedUI(spd);
+    })
+    .catch((err) => log("getSpeed error: " + err));
+
+  // 9) Panel Count
+  getPanelCount();
 });
 
+/************************************************
+ * 2) Animations
+ ************************************************/
 function loadAnimationList() {
   fetch("/api/listAnimations")
     .then((r) => r.json())
     .then((data) => {
+      log("Got animation list: " + JSON.stringify(data));
+      const selAnimation = document.getElementById("selAnimation");
+      if (!selAnimation) return;
       selAnimation.innerHTML = "";
       data.forEach((animName, idx) => {
         const opt = document.createElement("option");
@@ -50,115 +132,255 @@ function loadAnimationList() {
         selAnimation.appendChild(opt);
       });
     })
-    .catch((err) => log("Error fetching animations: " + err));
+    .catch((err) => log("Error fetching /api/listAnimations: " + err));
 }
 
-/********************************************************
- * 1) Define a log scale mapping.
- *    We'll map slider range [0..100] -> speed [10..60000].
- ********************************************************/
-function sliderToSpeed(sliderVal) {
-  // sliderVal = 0..100
-  // let's define a log scale from ln(10) to ln(60000).
-  const minSpeed = 10;
-  const maxSpeed = 60000;
-  const minLog = Math.log(minSpeed); // ln(10) ~ 2.302585
-  const maxLog = Math.log(maxSpeed); // ln(60000) ~ 11.0021
-  // fraction = sliderVal / 100 => 0..1
-  const fraction = sliderVal / 100.0;
-  // Now do log interpolation:
+// On-change => set the animation
+const selAnimation = document.getElementById("selAnimation");
+if (selAnimation) {
+  selAnimation.addEventListener("change", () => {
+    const val = selAnimation.value;
+    log("Animation changed to " + val);
+    fetch(`/api/setAnimation?val=${val}`)
+      .then((r) => r.text())
+      .then((txt) => log(txt))
+      .catch((err) => log("setAnimation error: " + err));
+  });
+}
+
+// Example: get current palette
+function getPalette() {
+  fetch("/api/getPalette")
+    .then((r) => r.json())
+    .then((obj) => {
+      log("Current palette index: " + obj.current);
+      const paletteSelect = document.getElementById("paletteSelect");
+      if (paletteSelect) {
+        paletteSelect.value = obj.current;
+      }
+    })
+    .catch((err) => log("Palette fetch error: " + err));
+}
+
+// On-change => set palette
+const paletteSelect = document.getElementById("paletteSelect");
+if (paletteSelect) {
+  paletteSelect.addEventListener("change", () => {
+    const val = paletteSelect.value;
+    log("Palette changed to " + val);
+    fetch(`/api/setPalette?val=${val}`)
+      .then((r) => r.text())
+      .then((txt) => log(txt))
+      .catch((err) => log("setPalette error: " + err));
+  });
+}
+
+/************************************************
+ * 3) Speed Slider
+ ************************************************/
+function sliderToSpeed(slVal) {
+  const minSpeed = 10,
+    maxSpeed = 60000;
+  const minLog = Math.log(minSpeed),
+    maxLog = Math.log(maxSpeed);
+  const fraction = slVal / 100.0;
   const scale = minLog + (maxLog - minLog) * fraction;
-  // exponentiate back:
-  const speed = Math.round(Math.exp(scale));
-  return speed; // e.g. 80 -> ~ some ms
+  return Math.round(Math.exp(scale));
 }
-
-function speedToSliderVal(speed) {
-  // speed in [10..60000], map back to [0..100].
-  const minSpeed = 10;
-  const maxSpeed = 60000;
-  const minLog = Math.log(minSpeed);
-  const maxLog = Math.log(maxSpeed);
-
-  // clamp speed just in case
-  if (speed < minSpeed) speed = minSpeed;
-  if (speed > maxSpeed) speed = maxSpeed;
-
-  const scale = Math.log(speed);
+function speedToSliderVal(spd) {
+  const minSpeed = 10,
+    maxSpeed = 60000;
+  const minLog = Math.log(minSpeed),
+    maxLog = Math.log(maxSpeed);
+  if (spd < minSpeed) spd = minSpeed;
+  if (spd > maxSpeed) spd = maxSpeed;
+  const scale = Math.log(spd);
   const fraction = (scale - minLog) / (maxLog - minLog);
-  return Math.round(fraction * 100.0);
+  return Math.round(fraction * 100);
 }
 
-/********************************************************
- * 2) Setup code for the slider + text box
- ********************************************************/
-// references to the slider, text box, and label
 const sSpeed = document.getElementById("sliderSpeed");
 const tSpeed = document.getElementById("txtSpeed");
-const lSpeed = document.getElementById("lblSpeed");
-
-// A function to update the text box + label
-function updateSpeedUI(speed) {
-  // update text box
-  tSpeed.value = speed;
-  // update label
-  lSpeed.innerText = speed;
-  // update slider
-  sSpeed.value = speedToSliderVal(speed);
+if (sSpeed && tSpeed) {
+  // Move slider => update number in real time
+  sSpeed.addEventListener("input", () => {
+    tSpeed.value = sliderToSpeed(parseInt(sSpeed.value, 10));
+  });
+  // Let go of slider => call /api
+  sSpeed.addEventListener("change", () => {
+    const val = sliderToSpeed(parseInt(sSpeed.value, 10));
+    tSpeed.value = val;
+    fetch(`/api/setSpeed?val=${val}`)
+      .then((r) => r.text())
+      .then((txt) => log(txt))
+      .catch((err) => log("setSpeed error:" + err));
+  });
+  // Number box => on input => update slider, on change => call /api
+  tSpeed.addEventListener("input", () => {
+    let typedVal = parseInt(tSpeed.value, 10);
+    if (isNaN(typedVal)) typedVal = 10;
+    if (typedVal < 10) typedVal = 10;
+    if (typedVal > 60000) typedVal = 60000;
+    sSpeed.value = speedToSliderVal(typedVal);
+  });
+  tSpeed.addEventListener("change", () => {
+    let typedVal = parseInt(tSpeed.value, 10);
+    if (isNaN(typedVal)) typedVal = 10;
+    if (typedVal < 10) typedVal = 10;
+    if (typedVal > 60000) typedVal = 60000;
+    updateSpeedUI(typedVal);
+    fetch(`/api/setSpeed?val=${typedVal}`)
+      .then((r) => r.text())
+      .then((txt) => log(txt))
+      .catch((err) => log("setSpeed error:" + err));
+  });
 }
 
-/********************************************************
- * 3) When the slider changes, convert slider->speed,
- *    update text box + label, call /api/setSpeed
- ********************************************************/
-sSpeed.addEventListener("change", () => {
-  const sliderVal = parseInt(sSpeed.value);
-  const spd = sliderToSpeed(sliderVal);
-  updateSpeedUI(spd);
+function updateSpeedUI(spd) {
+  if (!isNaN(spd)) {
+    if (tSpeed) tSpeed.value = spd;
+    if (sSpeed) sSpeed.value = speedToSliderVal(spd);
+  }
+}
 
-  // Now we do the fetch to set speed
-  fetch(`/api/setSpeed?val=${spd}`)
+/************************************************
+ * 4) Sliders for Brightness, Fade, Tail, Spawn, MaxFlakes
+ *    same pattern: 'input' => sync the number, 'change' => call /api
+ ************************************************/
+function bindSliderAndNumber(
+  sliderId,
+  numberId,
+  apiUrl,
+  minVal,
+  maxVal,
+  isFloat = false
+) {
+  const slider = document.getElementById(sliderId);
+  const number = document.getElementById(numberId);
+  if (!slider || !number) return;
+
+  // 'input' => update text box in real time
+  slider.addEventListener("input", () => {
+    number.value = slider.value;
+  });
+  // 'change' => call /api
+  slider.addEventListener("change", () => {
+    number.value = slider.value;
+    sendValueToApi(apiUrl, slider.value);
+  });
+
+  // text box => 'input' => update slider in real time
+  number.addEventListener("input", () => {
+    let val = isFloat ? parseFloat(number.value) : parseInt(number.value, 10);
+    if (isNaN(val)) val = minVal;
+    if (val < minVal) val = minVal;
+    if (val > maxVal) val = maxVal;
+    number.value = val;
+    slider.value = val;
+  });
+  // text box => 'change' => call /api
+  number.addEventListener("change", () => {
+    sendValueToApi(apiUrl, slider.value);
+  });
+}
+
+function sendValueToApi(apiUrl, val) {
+  fetch(`/api/${apiUrl}?val=${val}`)
     .then((r) => r.text())
-    .then((txt) => console.log(txt))
-    .catch((err) => console.log("setSpeed error:", err));
-});
+    .then((txt) => log(txt))
+    .catch((err) => log(`Error calling ${apiUrl}: ` + err));
+}
 
-/********************************************************
- * 4) When the user edits the text box, we can do two approaches:
- *    - On "change" event
- *    - On "keypress" for Enter
- *    We'll do "change" for simplicity:
- ********************************************************/
-tSpeed.addEventListener("change", () => {
-  let typedVal = parseInt(tSpeed.value);
-  if (isNaN(typedVal)) typedVal = 80; // some default
-  // clamp
-  if (typedVal < 10) typedVal = 10;
-  if (typedVal > 60000) typedVal = 60000;
+// Apply to your brightness, fade, tail, spawn, maxFlakes
+bindSliderAndNumber(
+  "sliderBrightness",
+  "numBrightness",
+  "setBrightness",
+  0,
+  255
+);
+bindSliderAndNumber("sliderFade", "numFade", "setFadeAmount", 0, 255);
+bindSliderAndNumber("sliderTail", "numTail", "setTailLength", 1, 30);
+bindSliderAndNumber("sliderSpawn", "numSpawn", "setSpawnRate", 0, 1, true);
+bindSliderAndNumber("sliderMaxFlakes", "numMaxFlakes", "setMaxFlakes", 10, 500);
 
-  // update slider + label
-  updateSpeedUI(typedVal);
+/************************************************
+ * 5) Panel Count (needs an Apply button)
+ ************************************************/
+const sliderPanelCount = document.getElementById("sliderPanelCount");
+const numPanelCount = document.getElementById("numPanelCount");
+const btnSetPanelCount = document.getElementById("btnSetPanelCount");
 
-  // call the server
-  fetch(`/api/setSpeed?val=${typedVal}`)
-    .then((r) => r.text())
-    .then((txt) => console.log(txt))
-    .catch((err) => console.log("setSpeed error:", err));
-});
+if (sliderPanelCount && numPanelCount) {
+  // Real-time sync, but do NOT call /api on slider change
+  sliderPanelCount.addEventListener("input", () => {
+    numPanelCount.value = sliderPanelCount.value;
+  });
+  numPanelCount.addEventListener("input", () => {
+    sliderPanelCount.value = numPanelCount.value;
+  });
+}
+if (btnSetPanelCount) {
+  btnSetPanelCount.addEventListener("click", () => {
+    let val = parseInt(numPanelCount.value, 10);
+    if (isNaN(val)) val = 1;
+    if (val < 1) val = 1;
+    if (val > 8) val = 8;
+    fetch(`/api/setPanelCount?val=${val}`)
+      .then((r) => r.text())
+      .then((txt) => log(txt))
+      .catch((err) => log("setPanelCount error:" + err));
+  });
+}
 
-/********************************************************
- * 5) On page load, you probably do:
- *    fetch("/api/getSpeed") -> we get an integer e.g. 80
- *    then call updateSpeedUI(80)
- ********************************************************/
-// Example snippet in your "load" event:
-window.addEventListener("load", () => {
-  fetch("/api/getSpeed")
-    .then((r) => r.text())
-    .then((val) => {
-      let spd = parseInt(val);
-      if (isNaN(spd)) spd = 80;
-      updateSpeedUI(spd);
+function getPanelCount() {
+  fetch("/api/getPanelCount")
+    .then((r) => r.json())
+    .then((obj) => {
+      log("PanelCount: " + obj.panelCount);
+      if (sliderPanelCount && numPanelCount) {
+        sliderPanelCount.value = obj.panelCount;
+        numPanelCount.value = obj.panelCount;
+      }
     })
-    .catch((err) => console.log("getSpeed error:", err));
-});
+    .catch((err) => log("getPanelCount error:" + err));
+}
+
+/************************************************
+ * 6) Panel Order, Rotation, etc. (unchanged)
+ ************************************************/
+const selPanelOrder = document.getElementById("selPanelOrder");
+const btnSetPanelOrder = document.getElementById("btnSetPanelOrder");
+if (btnSetPanelOrder) {
+  btnSetPanelOrder.addEventListener("click", () => {
+    const val = selPanelOrder.value;
+    fetch(`/api/setPanelOrder?val=${val}`)
+      .then((r) => r.text())
+      .then((txt) => log(txt))
+      .catch((err) => log("setPanelOrder error:" + err));
+  });
+}
+
+const selRotateP1 = document.getElementById("selRotateP1");
+const btnRotateP1 = document.getElementById("btnRotateP1");
+if (btnRotateP1) {
+  btnRotateP1.addEventListener("click", () => {
+    const val = selRotateP1.value;
+    fetch(`/api/rotatePanel1?val=${val}`)
+      .then((r) => r.text())
+      .then((txt) => log(txt))
+      .catch((err) => log("rotatePanel1 error:" + err));
+  });
+}
+
+const selRotateP2 = document.getElementById("selRotateP2");
+const btnRotateP2 = document.getElementById("btnRotateP2");
+if (btnRotateP2) {
+  btnRotateP2.addEventListener("click", () => {
+    const val = selRotateP2.value;
+    fetch(`/api/rotatePanel2?val=${val}`)
+      .then((r) => r.text())
+      .then((txt) => log(txt))
+      .catch((err) => log("rotatePanel2 error:" + err));
+  });
+}

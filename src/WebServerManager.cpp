@@ -452,4 +452,29 @@ void WebServerManager::setupRoutes() {
     _server.onNotFound([](AsyncWebServerRequest *request){
         request->send(404, "text/html", "<h1>404: Not Found</h1>");
     });
+
+    // 24) setPanelCount
+
+    _server.on("/api/setPanelCount", HTTP_GET, [](AsyncWebServerRequest *request){
+        if(!request->hasParam("val")) {
+            request->send(400, "text/plain", "Missing 'val' parameter");
+            return;
+        }
+        int pc = request->getParam("val")->value().toInt();
+        if(pc<1 || pc>8){
+            request->send(400, "text/plain", "panelCount must be 1..8");
+            return;
+        }
+        ledManager.setPanelCount(pc);
+        String msg = "Panel count set to " + String(pc);
+        request->send(200, "text/plain", msg);
+        Serial.println(msg);
+    });
+
+    // e.g. /api/getPanelCount => returns JSON { "panelCount": 3 }
+    _server.on("/api/getPanelCount", HTTP_GET, [](AsyncWebServerRequest *request){
+        int pc = ledManager.getPanelCount();
+        String json = "{\"panelCount\":" + String(pc) + "}";
+        request->send(200, "application/json", json);
+    });
 }

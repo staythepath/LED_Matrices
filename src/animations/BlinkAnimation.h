@@ -3,27 +3,47 @@
 
 #include "BaseAnimation.h"
 #include <FastLED.h>
+#include <vector>
 
-// A very simple "Blink" animation that toggles all LEDs on/off
+/**
+ * A "Blink" animation that cycles through a palette of colors.
+ * Every interval, we pick the next color from the palette 
+ * and fill the entire strip with it, then toggle off.
+ */
 class BlinkAnimation : public BaseAnimation {
 public:
-    BlinkAnimation(uint16_t numLeds, uint8_t brightness);
+    /**
+     * @param numLeds     - total LED count (panelCount * 16 * 16, typically)
+     * @param brightness  - initial brightness
+     * @param panelCount  - how many 16x16 panels (not used specifically, 
+     *                      but included for consistent constructor signature)
+     */
+    BlinkAnimation(uint16_t numLeds, uint8_t brightness, int panelCount=1);
 
-    void begin() override; // Called once when animation starts
-    void update() override; // Called periodically
+    // Required by BaseAnimation
+    void begin() override;
+    void update() override;
 
-    // Setters
-    void setBrightness(uint8_t b);
+    // Overridden brightness
+    void setBrightness(uint8_t b) override;
+
+    // Set how fast we blink
     void setInterval(unsigned long intervalMs);
 
-private:
-    uint16_t _numLeds;
-    uint8_t  _brightness;
+    // If we want to use a palette of colors
+    void setPalette(const std::vector<CRGB>* palette);
 
-    // Timing
+private:
+    // For consistency, we store the panelCount even though we don't use it
+    int _panelCount;
+
     unsigned long _intervalMs;  
     unsigned long _lastToggle;
-    bool _isOn;
+    bool          _isOn;
+
+    // We'll cycle through a palette
+    const std::vector<CRGB>* _palette;
+    int   _paletteIndex; // which color in the palette
 };
 
 #endif // BLINKANIMATION_H

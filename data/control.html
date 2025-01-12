@@ -82,17 +82,17 @@
       <div class="dropdown-container">
         <label for="selAnimation">Select Animation:</label>
         <select id="selAnimation"></select>
-        <button id="btnSetAnimation">Set</button>
+        <!-- No "Set" button: selecting triggers the animation change. -->
       </div>
     </div>
 
     <!-- Palettes -->
-    <div class="section" id="paletteSection">
+    <div class="section">
       <h2>Palettes</h2>
-      <div>
+      <div class="dropdown-container">
         <label for="paletteSelect">Select Palette:</label>
         <select id="paletteSelect"></select>
-        <button id="btnSetPalette">Set</button>
+        <!-- No "Set" button: selecting triggers the palette change. -->
       </div>
     </div>
 
@@ -180,10 +180,19 @@
     <!-- Panel Settings -->
     <div class="section">
       <h2>Panel Settings</h2>
-      <div class="button-container">
-        <button id="btnSwapPanels">Swap Panels</button>
+
+      <!-- Panel Count -->
+      <div class="slider-container" style="margin-bottom: 10px">
+        <label>Panel Count (16x16 each):</label>
+        <input type="range" id="sliderPanelCount" min="1" max="8" value="3" />
+        <input type="number" id="numPanelCount" min="1" max="8" value="3" />
+        <button id="btnSetPanelCount">Apply</button>
       </div>
-      <div class="dropdown-container">
+
+      <!-- Removed the Swap Panels button per your request -->
+
+      <!-- Panel Order -->
+      <div class="dropdown-container" style="margin-bottom: 10px">
         <label>Panel Order:</label>
         <select id="selPanelOrder">
           <option value="left">Left</option>
@@ -191,6 +200,8 @@
         </select>
         <button id="btnSetPanelOrder">Set</button>
       </div>
+
+      <!-- Rotate Panel 1/2 -->
       <div class="dropdown-container">
         <label>Rotate Panel1:</label>
         <select id="selRotateP1">
@@ -219,269 +230,7 @@
       <div id="log"></div>
     </div>
 
-    <script>
-      /* ========== Logging ========== */
-      const logDiv = document.getElementById("log");
-      function log(msg) {
-        console.log(msg);
-        logDiv.innerText += msg + "\n";
-        logDiv.scrollTop = logDiv.scrollHeight;
-      }
-
-      /* ========== Animation Dropdown ========== */
-      const selAnimation = document.getElementById("selAnimation");
-      const btnSetAnimation = document.getElementById("btnSetAnimation");
-
-      btnSetAnimation.addEventListener("click", () => {
-        const val = selAnimation.value;
-        fetch(`/api/setAnimation?val=${val}`)
-          .then((r) => r.text())
-          .then((txt) => log(txt))
-          .catch((err) => log("setAnimation error: " + err));
-      });
-
-      // On load, get list of animations
-      function loadAnimationList() {
-        fetch("/api/listAnimations")
-          .then((r) => r.json())
-          .then((data) => {
-            selAnimation.innerHTML = "";
-            data.forEach((animName, idx) => {
-              const opt = document.createElement("option");
-              opt.value = idx;
-              opt.innerText = `${idx}: ${animName}`;
-              selAnimation.appendChild(opt);
-            });
-            // If you want to fetch "getAnimation" to see which one is current,
-            // you'd do that here. For now, we default to 0 on page load.
-          })
-          .catch((err) => log("Error fetching animations: " + err));
-      }
-
-      /* ========== Palettes ========== */
-      const paletteSelect = document.getElementById("paletteSelect");
-      const btnSetPalette = document.getElementById("btnSetPalette");
-
-      function getPalette() {
-        fetch("/api/getPalette")
-          .then((r) => r.json())
-          .then((obj) => {
-            paletteSelect.value = obj.current;
-          })
-          .catch((err) => log("Palette fetch error: " + err));
-      }
-      btnSetPalette.addEventListener("click", () => {
-        const pVal = paletteSelect.value;
-        fetch(`/api/setPalette?val=${pVal}`)
-          .then((r) => r.text())
-          .then((txt) => {
-            log(txt);
-            getPalette();
-          })
-          .catch((err) => log("setPalette error: " + err));
-      });
-
-      /* ========== Sliders & Number inputs ========== */
-      const sBrightness = document.getElementById("sliderBrightness");
-      const nBrightness = document.getElementById("numBrightness");
-      const sFade = document.getElementById("sliderFade");
-      const nFade = document.getElementById("numFade");
-      const sTail = document.getElementById("sliderTail");
-      const nTail = document.getElementById("numTail");
-      const sSpawn = document.getElementById("sliderSpawn");
-      const nSpawn = document.getElementById("numSpawn");
-      const sMaxFlakes = document.getElementById("sliderMaxFlakes");
-      const nMaxFlakes = document.getElementById("numMaxFlakes");
-      const sSpeed = document.getElementById("sliderSpeed");
-      const tSpeed = document.getElementById("txtSpeed");
-
-      // Reuse your bind logic from before:
-      function bindSliderAndNumber(
-        slider,
-        numberInput,
-        apiUrl,
-        min,
-        max,
-        isFloat = false
-      ) {
-        slider.addEventListener("input", () => {
-          numberInput.value = slider.value;
-        });
-        slider.addEventListener("change", () => {
-          numberInput.value = slider.value;
-          sendToApi(apiUrl, slider.value);
-        });
-        numberInput.addEventListener("input", () => {
-          let val = isFloat
-            ? parseFloat(numberInput.value)
-            : parseInt(numberInput.value, 10);
-          if (isNaN(val)) val = min;
-          if (val < min) val = min;
-          if (val > max) val = max;
-          numberInput.value = val;
-          slider.value = val;
-        });
-        numberInput.addEventListener("change", () => {
-          sendToApi(apiUrl, slider.value);
-        });
-      }
-      function sendToApi(apiUrl, val) {
-        fetch(`/api/${apiUrl}?val=${val}`)
-          .then((r) => r.text())
-          .then((txt) => log(txt))
-          .catch((err) => log("Error: " + err));
-      }
-
-      bindSliderAndNumber(sBrightness, nBrightness, "setBrightness", 0, 255);
-      bindSliderAndNumber(sFade, nFade, "setFadeAmount", 0, 255);
-      bindSliderAndNumber(sTail, nTail, "setTailLength", 1, 30);
-      bindSliderAndNumber(sMaxFlakes, nMaxFlakes, "setMaxFlakes", 10, 500);
-      bindSliderAndNumber(sSpawn, nSpawn, "setSpawnRate", 0, 1, true);
-
-      // Speed (log-scale)
-      function sliderToSpeed(slVal) {
-        const minSpeed = 10,
-          maxSpeed = 60000;
-        const minLog = Math.log(minSpeed),
-          maxLog = Math.log(maxSpeed);
-        const fraction = slVal / 100.0;
-        const scale = minLog + (maxLog - minLog) * fraction;
-        return Math.round(Math.exp(scale));
-      }
-      function speedToSliderVal(spd) {
-        const minSpeed = 10,
-          maxSpeed = 60000;
-        const minLog = Math.log(minSpeed),
-          maxLog = Math.log(maxSpeed);
-        if (spd < minSpeed) spd = minSpeed;
-        if (spd > maxSpeed) spd = maxSpeed;
-        const scale = Math.log(spd);
-        const fraction = (scale - minLog) / (maxLog - minLog);
-        return Math.round(fraction * 100);
-      }
-      sSpeed.addEventListener("input", () => {
-        tSpeed.value = sliderToSpeed(parseInt(sSpeed.value, 10));
-      });
-      sSpeed.addEventListener("change", () => {
-        const val = sliderToSpeed(parseInt(sSpeed.value, 10));
-        tSpeed.value = val;
-        sendToApi("setSpeed", val);
-      });
-      tSpeed.addEventListener("input", () => {
-        let typedVal = parseInt(tSpeed.value, 10);
-        if (isNaN(typedVal)) typedVal = 10;
-        if (typedVal < 10) typedVal = 10;
-        if (typedVal > 60000) typedVal = 60000;
-        sSpeed.value = speedToSliderVal(typedVal);
-      });
-      tSpeed.addEventListener("change", () => {
-        let typedVal = parseInt(tSpeed.value, 10);
-        if (isNaN(typedVal)) typedVal = 10;
-        if (typedVal < 10) typedVal = 10;
-        if (typedVal > 60000) typedVal = 60000;
-        sendToApi("setSpeed", typedVal);
-      });
-
-      /* ========== Panel Buttons ========== */
-      const btnSwapPanels = document.getElementById("btnSwapPanels");
-      const selPanelOrder = document.getElementById("selPanelOrder");
-      const btnSetPanelOrder = document.getElementById("btnSetPanelOrder");
-      const selRotateP1 = document.getElementById("selRotateP1");
-      const btnRotateP1 = document.getElementById("btnRotateP1");
-      const selRotateP2 = document.getElementById("selRotateP2");
-      const btnRotateP2 = document.getElementById("btnRotateP2");
-
-      btnSwapPanels.addEventListener("click", () => {
-        fetch("/api/swapPanels")
-          .then((r) => r.text())
-          .then((txt) => log(txt))
-          .catch((err) => log("swapPanels error: " + err));
-      });
-      btnSetPanelOrder.addEventListener("click", () => {
-        const val = selPanelOrder.value;
-        fetch(`/api/setPanelOrder?val=${val}`)
-          .then((r) => r.text())
-          .then((txt) => log(txt))
-          .catch((err) => log("setPanelOrder error: " + err));
-      });
-      btnRotateP1.addEventListener("click", () => {
-        const val = selRotateP1.value;
-        fetch(`/api/rotatePanel1?val=${val}`)
-          .then((r) => r.text())
-          .then((txt) => log(txt))
-          .catch((err) => log("rotatePanel1 error: " + err));
-      });
-      btnRotateP2.addEventListener("click", () => {
-        const val = selRotateP2.value;
-        fetch(`/api/rotatePanel2?val=${val}`)
-          .then((r) => r.text())
-          .then((txt) => log(txt))
-          .catch((err) => log("rotatePanel2 error: " + err));
-      });
-
-      /* ========== On page load ========== */
-      window.addEventListener("load", () => {
-        loadAnimationList();
-        // Palettes
-        fetch("/api/listPalettes")
-          .then((res) => res.json())
-          .then((data) => {
-            paletteSelect.innerHTML = "";
-            data.forEach((p, idx) => {
-              const opt = document.createElement("option");
-              opt.value = idx;
-              opt.innerText = `${idx + 1}: ${p}`;
-              paletteSelect.appendChild(opt);
-            });
-            getPalette();
-          })
-          .catch((err) => log("Error fetching palette list: " + err));
-
-        // brightness
-        fetch("/api/getBrightness")
-          .then((r) => r.text())
-          .then((val) => {
-            sBrightness.value = val;
-            nBrightness.value = val;
-          });
-        // fade
-        fetch("/api/getFadeAmount")
-          .then((r) => r.text())
-          .then((val) => {
-            sFade.value = val;
-            nFade.value = val;
-          });
-        // tail
-        fetch("/api/getTailLength")
-          .then((r) => r.text())
-          .then((val) => {
-            sTail.value = val;
-            nTail.value = val;
-          });
-        // spawn
-        fetch("/api/getSpawnRate")
-          .then((r) => r.text())
-          .then((val) => {
-            sSpawn.value = val;
-            nSpawn.value = val;
-          });
-        // max
-        fetch("/api/getMaxFlakes")
-          .then((r) => r.text())
-          .then((val) => {
-            sMaxFlakes.value = val;
-            nMaxFlakes.value = val;
-          });
-        // speed
-        fetch("/api/getSpeed")
-          .then((r) => r.text())
-          .then((val) => {
-            let spd = parseInt(val, 10);
-            if (isNaN(spd)) spd = 80;
-            tSpeed.value = spd;
-            sSpeed.value = speedToSliderVal(spd);
-          });
-      });
-    </script>
+    <!-- Link to external JS -->
+    <script src="/script.js"></script>
   </body>
 </html>
