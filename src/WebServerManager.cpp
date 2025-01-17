@@ -477,4 +477,14 @@ void WebServerManager::setupRoutes() {
         String json = "{\"panelCount\":" + String(pc) + "}";
         request->send(200, "application/json", json);
     });
+
+    _server.on("/api/identifyPanels", HTTP_GET, [](AsyncWebServerRequest *request){
+        ledManager.identifyPanels();
+        request->send(200, "text/plain", "Panels identified!");
+    });
+
+    // 404 fallback
+    _server.onNotFound([](AsyncWebServerRequest* req){
+        req->send(404, "text/plain", "Not Found");
+    });
 }

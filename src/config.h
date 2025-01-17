@@ -9,7 +9,7 @@
 #define DEFAULT_BRIGHTNESS 32 // Initial brightness (0-255)
 
 // -------------------- DHT Sensor Configuration --------------------
-#define DHTPIN      4
+#define DHTPIN      47
 #define DHTTYPE     DHT11
 
 // -------------------- LCD Configuration --------------------

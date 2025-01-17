@@ -10,11 +10,11 @@
 #include "animations/BlinkAnimation.h"
 #include "animations/RainbowWaveAnimation.h"
 
-// We'll define the global array with a max size of 16x16x8=2048
+// Up to 8 panels of 16×16
 CRGB leds[MAX_LEDS];
 
 LEDManager::LEDManager()
-    : _panelCount(3) // default to 3
+    : _panelCount(3) // default
     , _numLeds(_panelCount * 16 * 16)
     , _brightness(32)
     , currentPalette(0)
@@ -31,37 +31,27 @@ LEDManager::LEDManager()
     , lastLedUpdate(0)
 {
     createPalettes();
-
-    // Animations
     _animationNames.push_back("Traffic");     // index=0
     _animationNames.push_back("Blink");       // index=1
     _animationNames.push_back("RainbowWave"); // index=2
 }
 
 void LEDManager::begin() {
-    reinitFastLED(); 
-    // Optionally auto-select animation 0
+    reinitFastLED();
+    // default to anim 0
     setAnimation(0);
 }
 
 void LEDManager::reinitFastLED() {
-    // Clear any existing LED data
     FastLED.clear(true);
     FastLED.setBrightness(_brightness);
 
-    // Now add the first _numLeds from the global leds[] array
-    // Make sure we don't exceed MAX_LEDS
     if(_numLeds > MAX_LEDS) {
-        Serial.println("Error: _numLeds exceeds MAX_LEDS, adjusting...");
+        Serial.println("Error: _numLeds > MAX_LEDS, adjusting.");
         _numLeds = MAX_LEDS;
     }
-
-    // Re-init FastLED. It's often good practice to remove existing controllers first:
-    FastLED.clearData(); 
-    // Some versions of FastLED also allow removeAllLeds() or similar, but not always needed.
-
-    FastLED.addLeds<WS2812B, 21, GRB>(leds, _numLeds)
-           .setCorrection(TypicalLEDStrip);
+    FastLED.clearData();
+    FastLED.addLeds<WS2812B, 21, GRB>(leds, _numLeds).setCorrection(TypicalLEDStrip);
     FastLED.show();
 }
 
@@ -123,57 +113,224 @@ void LEDManager::createPalettes() {
     };
 }
 
-// ------------------------ Panel Count Control ------------------------
-#include "LEDManager.h"
-#include <Arduino.h>
-#include <FastLED.h>
-#include "animations/TrafficAnimation.h"
-#include "animations/BlinkAnimation.h"
-#include "animations/RainbowWaveAnimation.h"
-
-extern CRGB leds[MAX_LEDS];
-
 void LEDManager::setPanelCount(int count) {
-    if(count < 1) {
-        Serial.println("Panel count must be >= 1");
-        return;
-    }
-    if(count > 8) {
-        Serial.println("Panel count max is 8 for now!");
-        count = 8;
-    }
+    if(count<1) count=1;
+    if(count>8) count=8;
 
-    int oldCount  = _panelCount;
+    int oldCount = _panelCount;
     int oldNumLeds= _numLeds;
 
-    _panelCount = count;
-    _numLeds    = _panelCount * 16 * 16;
+    _panelCount= count;
+    _numLeds = _panelCount * 16 * 16;
     Serial.printf("Panel count set to %d, _numLeds=%d\n", _panelCount, _numLeds);
 
-    // If new count < old count, clear the leftover region
-    if(_numLeds < oldNumLeds) {
-        for(int i=_numLeds; i<oldNumLeds && i<MAX_LEDS; i++) {
-            leds[i] = CRGB::Black; 
+    if(_numLeds < oldNumLeds){
+        for(int i=_numLeds; i<oldNumLeds && i<MAX_LEDS; i++){
+            leds[i]=CRGB::Black;
         }
-        FastLED.show(); // force update
+        FastLED.show();
     }
-
-    // Now re-init FastLED
     reinitFastLED();
 
-    // Re-create the active animation with the new LED count
     cleanupAnimation();
-    int oldIndex = _currentAnimationIndex;
-    _currentAnimationIndex = -1; 
-    setAnimation((oldIndex >= 0) ? oldIndex : 0);
+    int oldIdx= _currentAnimationIndex;
+    _currentAnimationIndex=-1;
+    setAnimation( (oldIdx>=0) ? oldIdx : 0 );
 }
-
-
 int LEDManager::getPanelCount() const {
     return _panelCount;
 }
 
-// ------------------------ setAnimation(...) ------------------------
+// Identify Panels
+// Blocks 10s, draws big arrow + big digit
+void LEDManager::identifyPanels(){
+    Serial.println("identifyPanels() invoked, blocking 10s...");
+    int oldIdx = _currentAnimationIndex;
+    cleanupAnimation();
+    _currentAnimationIndex=-1; 
+
+    // Clear
+    FastLED.clear(true);
+
+    // For each panel p => draw arrow + digit
+    for(int p=0; p<_panelCount; p++){
+        int base = p*16*16; 
+        drawUpArrow(base);
+        drawLargeDigit(base, p+1); 
+    }
+    FastLED.show();
+
+    // Wait 10s
+    delay(10000);
+
+    // Restore old anim
+    if(oldIdx>=0){
+        setAnimation(oldIdx);
+    } else {
+        setAnimation(0);
+    }
+}
+
+// A bigger arrow at the top
+// Let's do 4 rows: row=0..3
+// row=0 => x=8 = tip
+// row=1 => x=7..9
+// row=2 => x=6..10
+// row=3 => x=5..11
+void LEDManager::drawUpArrow(int baseIndex){
+    // row=0 => x=8
+    int idx = baseIndex + (0*16)+8;
+    if(idx<MAX_LEDS) leds[idx]=CRGB::Green;
+
+    // row=1 => x=7..9
+    for(int x=7; x<=9; x++){
+        idx= baseIndex+(1*16)+x;
+        if(idx<MAX_LEDS) leds[idx]=CRGB::Green;
+    }
+    // row=2 => x=6..10
+    for(int x=6; x<=10; x++){
+        idx= baseIndex+(2*16)+x;
+        if(idx<MAX_LEDS) leds[idx]=CRGB::Green;
+    }
+    // row=3 => x=5..11
+    for(int x=5; x<=11; x++){
+        idx= baseIndex+(3*16)+x;
+        if(idx<MAX_LEDS) leds[idx]=CRGB::Green;
+    }
+}
+
+/**
+ * We'll define an 8×8 pattern for digits 1..8,
+ * placing top-left at (4,6), so it's somewhat in the center 
+ * (x=4..11, y=6..13).
+ *
+ * We'll store them in a big array "digits8x8[digit-1][64]"
+ * 'X' = True => color pixel, '.'=False => skip
+ */
+void LEDManager::drawLargeDigit(int baseIndex, int digit){
+    // clamp 1..8
+    if(digit<1) digit=1;
+    if(digit>8) digit=8;
+    static const bool digits8x8[8][64] = {
+        // 1 => a tall line at x=3 maybe
+        {
+        // row=0..7
+        // We'll do a minimal shape that roughly looks like "1"
+        // 'X' => true, '.' => false
+        // We'll do 8 columns => col=0..7
+          // row0
+          false,false,true,false,false,false,false,false,
+          false,false,true,false,false,false,false,false,
+          false,false,true,false,false,false,false,false,
+          false,false,true,false,false,false,false,false,
+          false,false,true,false,false,false,false,false,
+          false,false,true,false,false,false,false,false,
+          false,false,true,false,false,false,false,false,
+          false,false,true,false,false,false,false,false
+        },
+        // 2 => let's do a shape
+        {
+          true,true,true,true,false,false,false,false,
+          false,false,false,true,false,false,false,false,
+          false,false,false,true,false,false,false,false,
+          true,true,true,true,false,false,false,false,
+          true,false,false,false,false,false,false,false,
+          true,false,false,false,false,false,false,false,
+          true,true,true,true,false,false,false,false,
+          false,false,false,false,false,false,false,false
+        },
+        // 3
+        {
+          true,true,true,true,false,false,false,false,
+          false,false,false,true,false,false,false,false,
+          false,false,false,true,false,false,false,false,
+          false,true,true,true,false,false,false,false,
+          false,false,false,true,false,false,false,false,
+          false,false,false,true,false,false,false,false,
+          true,true,true,true,false,false,false,false,
+          false,false,false,false,false,false,false,false
+        },
+        // 4
+        {
+          true,false,false,true,false,false,false,false,
+          true,false,false,true,false,false,false,false,
+          true,false,false,true,false,false,false,false,
+          true,true,true,true,false,false,false,false,
+          false,false,false,true,false,false,false,false,
+          false,false,false,true,false,false,false,false,
+          false,false,false,true,false,false,false,false,
+          false,false,false,false,false,false,false,false
+        },
+        // 5
+        {
+          true,true,true,true,false,false,false,false,
+          true,false,false,false,false,false,false,false,
+          true,false,false,false,false,false,false,false,
+          true,true,true,true,false,false,false,false,
+          false,false,false,true,false,false,false,false,
+          false,false,false,true,false,false,false,false,
+          true,true,true,true,false,false,false,false,
+          false,false,false,false,false,false,false,false
+        },
+        // 6
+        {
+          false,true,true,true,false,false,false,false,
+          true,false,false,false,false,false,false,false,
+          true,false,false,false,false,false,false,false,
+          true,true,true,true,false,false,false,false,
+          true,false,false,true,false,false,false,false,
+          true,false,false,true,false,false,false,false,
+          false,true,true,true,false,false,false,false,
+          false,false,false,false,false,false,false,false
+        },
+        // 7
+        {
+          true,true,true,true,false,false,false,false,
+          false,false,false,true,false,false,false,false,
+          false,false,false,true,false,false,false,false,
+          false,false,false,true,false,false,false,false,
+          false,false,false,true,false,false,false,false,
+          false,false,false,true,false,false,false,false,
+          false,false,false,true,false,false,false,false,
+          false,false,false,false,false,false,false,false
+        },
+        // 8
+        {
+          false,true,true,true,false,false,false,false,
+          true,false,false,true,false,false,false,false,
+          true,false,false,true,false,false,false,false,
+          false,true,true,true,false,false,false,false,
+          true,false,false,true,false,false,false,false,
+          true,false,false,true,false,false,false,false,
+          false,true,true,true,false,false,false,false,
+          false,false,false,false,false,false,false,false
+        }
+    };
+
+    // pick color
+    CRGB color = CHSV((digit*32) & 255, 255, 255);
+
+    // top-left corner of digit => (4,6)
+    // so it occupies x=4..11, y=6..13
+    int startX=4;
+    int startY=6;
+    int indexDigit= digit-1;
+
+    for(int row=0; row<8; row++){
+        for(int col=0; col<8; col++){
+            bool on = digits8x8[indexDigit][row*8 + col];
+            if(on){
+                int x= startX+ col;
+                int y= startY+ row;
+                int idx= baseIndex + y*16 + x;
+                if(idx<MAX_LEDS){
+                    leds[idx]= color;
+                }
+            }
+        }
+    }
+}
+
 void LEDManager::setAnimation(int animIndex) {
     if (animIndex == _currentAnimationIndex) return;
     cleanupAnimation();
@@ -185,8 +342,6 @@ void LEDManager::setAnimation(int animIndex) {
     _currentAnimationIndex = animIndex;
 
     if (animIndex == 0) {
-        // Traffic
-        // pass in the dynamic _numLeds, brightness, and panelCount
         auto traffic = new TrafficAnimation(_numLeds, _brightness, _panelCount);
         traffic->setAllPalettes(&ALL_PALETTES);
         traffic->setCurrentPalette(currentPalette);
@@ -197,29 +352,25 @@ void LEDManager::setAnimation(int animIndex) {
         traffic->setPanelOrder(panelOrder);
         traffic->setRotationAngle1(rotationAngle1);
         traffic->setRotationAngle2(rotationAngle2);
-
         _currentAnimation = traffic;
         _currentAnimation->begin();
         Serial.println("Traffic animation selected.");
-    }
-    else if (animIndex == 1) {
-        // Blink
-        auto blink = new BlinkAnimation(_numLeds, _brightness, _panelCount);
-        // setInterval, palette, etc.
-        _currentAnimation = blink;
+    } else if (animIndex==1){
+        auto blink= new BlinkAnimation(_numLeds, _brightness, _panelCount);
+        _currentAnimation=blink;
         _currentAnimation->begin();
-    }
-    else if (animIndex == 2) {
-        // Rainbow
-        auto rainbow = new RainbowWaveAnimation(_numLeds, _brightness, _panelCount);
-        // setPanelOrder, angles, etc.
-        _currentAnimation = rainbow;
+        Serial.println("Blink animation selected.");
+    } else if(animIndex==2){
+        auto wave= new RainbowWaveAnimation(_numLeds, _brightness, _panelCount);
+        _currentAnimation= wave;
         _currentAnimation->begin();
+        Serial.println("RainbowWave animation selected.");
     }
-
+    else {
+        Serial.println("Unknown anim index.");
+    }
 }
 
-// Accessors
 int LEDManager::getAnimation() const {
     return _currentAnimationIndex;
 }
@@ -227,50 +378,44 @@ size_t LEDManager::getAnimationCount() const {
     return _animationNames.size();
 }
 String LEDManager::getAnimationName(int animIndex) const {
-    if (animIndex >= 0 && animIndex < (int)_animationNames.size()) {
+    if (animIndex>=0 && animIndex<(int)_animationNames.size()){
         return _animationNames[animIndex];
     }
     return "Unknown";
 }
 
-// ---------- Brightness ----------
-void LEDManager::setBrightness(uint8_t brightness) {
-    _brightness = brightness;
+void LEDManager::setBrightness(uint8_t b){
+    _brightness=b;
     FastLED.setBrightness(_brightness);
 
-    if (_currentAnimationIndex == 0 && _currentAnimation) {
-        auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
-        traffic->setBrightness(_brightness);
-    }
-    else if (_currentAnimationIndex == 1 && _currentAnimation) {
-        auto blink = static_cast<BlinkAnimation*>(_currentAnimation);
-        blink->setBrightness(_brightness);
-    }
-    else if (_currentAnimationIndex == 2 && _currentAnimation) {
-        auto wave = static_cast<RainbowWaveAnimation*>(_currentAnimation);
-        wave->setBrightness(_brightness);
+    if(_currentAnimationIndex==0 && _currentAnimation){
+        auto t=(TrafficAnimation*)_currentAnimation;
+        t->setBrightness(_brightness);
+    } else if(_currentAnimationIndex==1 && _currentAnimation){
+        auto bA=(BlinkAnimation*)_currentAnimation;
+        bA->setBrightness(_brightness);
+    } else if(_currentAnimationIndex==2 && _currentAnimation){
+        auto wA=(RainbowWaveAnimation*)_currentAnimation;
+        wA->setBrightness(_brightness);
     }
 }
 uint8_t LEDManager::getBrightness() const {
     return _brightness;
 }
 
-// ---------- Palette ----------
-void LEDManager::setPalette(int paletteIndex) {
-    if (paletteIndex >= 0 && paletteIndex < (int)PALETTE_NAMES.size()) {
-        currentPalette = paletteIndex;
-        Serial.printf("Palette %d (%s) selected.\n",
-                      currentPalette,
-                      PALETTE_NAMES[currentPalette].c_str());
-
-        if (_currentAnimationIndex == 0 && _currentAnimation) {
-            auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
-            traffic->setCurrentPalette(currentPalette);
+void LEDManager::setPalette(int idx){
+    if(idx>=0 && idx<(int)PALETTE_NAMES.size()){
+        currentPalette= idx;
+        Serial.printf("Palette %d (%s) selected.\n", idx, PALETTE_NAMES[idx].c_str());
+        if(_currentAnimationIndex==0 && _currentAnimation){
+            auto t=(TrafficAnimation*)_currentAnimation;
+            t->setCurrentPalette(currentPalette);
         }
-        else if (_currentAnimationIndex == 1 && _currentAnimation) {
-            auto blink = static_cast<BlinkAnimation*>(_currentAnimation);
-            blink->setPalette(&ALL_PALETTES[currentPalette]);
+        else if(_currentAnimationIndex==1 && _currentAnimation){
+            auto bA=(BlinkAnimation*)_currentAnimation;
+            bA->setPalette(&ALL_PALETTES[currentPalette]);
         }
+        // etc.
     }
 }
 int LEDManager::getCurrentPalette() const {
@@ -279,162 +424,144 @@ int LEDManager::getCurrentPalette() const {
 size_t LEDManager::getPaletteCount() const {
     return PALETTE_NAMES.size();
 }
-String LEDManager::getPaletteNameAt(int index) const {
-    if (index >= 0 && index < (int)PALETTE_NAMES.size()) {
-        return PALETTE_NAMES[index];
+String LEDManager::getPaletteNameAt(int i) const {
+    if(i>=0 && i<(int)PALETTE_NAMES.size()){
+        return PALETTE_NAMES[i];
     }
     return "Unknown";
 }
 const std::vector<CRGB>& LEDManager::getCurrentPaletteColors() const {
-    if (currentPalette < 0 || currentPalette >= (int)ALL_PALETTES.size()) {
+    if (currentPalette<0 || currentPalette>=(int)ALL_PALETTES.size()){
         static std::vector<CRGB> dummy;
         return dummy;
     }
     return ALL_PALETTES[currentPalette];
 }
 
-// ---------- Spawn Rate ----------
-void LEDManager::setSpawnRate(float rate) {
-    spawnRate = rate;
-    if (_currentAnimationIndex == 0 && _currentAnimation) {
-        auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
-        traffic->setSpawnRate(rate);
+void LEDManager::setSpawnRate(float r){
+    spawnRate=r;
+    if(_currentAnimationIndex==0 && _currentAnimation){
+        auto t=(TrafficAnimation*)_currentAnimation;
+        t->setSpawnRate(r);
     }
 }
 float LEDManager::getSpawnRate() const {
     return spawnRate;
 }
 
-// ---------- Max "Cars" ----------
-void LEDManager::setMaxFlakes(int max) {
-    maxFlakes = max;
-    if (_currentAnimationIndex == 0 && _currentAnimation) {
-        auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
-        traffic->setMaxCars(max);
+void LEDManager::setMaxFlakes(int m){
+    maxFlakes=m;
+    if(_currentAnimationIndex==0 && _currentAnimation){
+        auto t=(TrafficAnimation*)_currentAnimation;
+        t->setMaxCars(m);
     }
 }
 int LEDManager::getMaxFlakes() const {
     return maxFlakes;
 }
 
-// ---------- Tail + Fade ----------
-void LEDManager::setTailLength(int length) {
-    tailLength = length;
-    if (_currentAnimationIndex == 0 && _currentAnimation) {
-        auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
-        traffic->setTailLength(length);
+void LEDManager::setTailLength(int l){
+    tailLength=l;
+    if(_currentAnimationIndex==0 && _currentAnimation){
+        auto t=(TrafficAnimation*)_currentAnimation;
+        t->setTailLength(l);
     }
 }
 int LEDManager::getTailLength() const {
     return tailLength;
 }
 
-void LEDManager::setFadeAmount(uint8_t amount) {
-    fadeAmount = amount;
-    if (_currentAnimationIndex == 0 && _currentAnimation) {
-        auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
-        traffic->setFadeAmount(amount);
+void LEDManager::setFadeAmount(uint8_t a){
+    fadeAmount=a;
+    if(_currentAnimationIndex==0 && _currentAnimation){
+        auto t=(TrafficAnimation*)_currentAnimation;
+        t->setFadeAmount(a);
     }
 }
 uint8_t LEDManager::getFadeAmount() const {
     return fadeAmount;
 }
 
-// ---------- Panel / Rotation ----------
-void LEDManager::swapPanels() {
-    panelOrder = 1 - panelOrder;
+void LEDManager::swapPanels(){
+    panelOrder=1-panelOrder;
     Serial.println("Panels swapped successfully.");
-    if (_currentAnimationIndex == 0 && _currentAnimation) {
-        auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
-        traffic->setPanelOrder(panelOrder);
+    if(_currentAnimationIndex==0 && _currentAnimation){
+        auto t=(TrafficAnimation*)_currentAnimation;
+        t->setPanelOrder(panelOrder);
     }
 }
-void LEDManager::setPanelOrder(String order) {
-    if (order.equalsIgnoreCase("left")) {
-        panelOrder = 0;
+void LEDManager::setPanelOrder(String order){
+    if(order.equalsIgnoreCase("left")){
+        panelOrder=0;
         Serial.println("Panel order set to left first.");
     }
-    else if (order.equalsIgnoreCase("right")) {
-        panelOrder = 1;
+    else if(order.equalsIgnoreCase("right")){
+        panelOrder=1;
         Serial.println("Panel order set to right first.");
-    }
-    else {
+    } else {
         Serial.println("Invalid panel order. Use 'left' or 'right'.");
         return;
     }
-    if (_currentAnimationIndex == 0 && _currentAnimation) {
-        auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
-        traffic->setPanelOrder(panelOrder);
+    if(_currentAnimationIndex==0 && _currentAnimation){
+        auto t=(TrafficAnimation*)_currentAnimation;
+        t->setPanelOrder(panelOrder);
     }
 }
-void LEDManager::rotatePanel(String panel, int angle) {
-    if (!(angle == 0 || angle == 90 || angle == 180 || angle == 270)) {
+void LEDManager::rotatePanel(String panel, int angle){
+    if(!(angle==0||angle==90||angle==180||angle==270)){
         Serial.printf("Invalid rotation angle: %d\n", angle);
         return;
     }
-    if (panel.equalsIgnoreCase("PANEL1")) {
-        rotationAngle1 = angle;
-        Serial.printf("Panel1 angle set to %d\n", rotationAngle1);
-        if (_currentAnimationIndex == 0 && _currentAnimation) {
-            auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
-            traffic->setRotationAngle1(rotationAngle1);
+    if(panel.equalsIgnoreCase("PANEL1")){
+        rotationAngle1=angle;
+        Serial.printf("Panel1 angle set to %d\n", angle);
+        if(_currentAnimationIndex==0 && _currentAnimation){
+            auto t=(TrafficAnimation*)_currentAnimation;
+            t->setRotationAngle1(angle);
         }
     }
-    else if (panel.equalsIgnoreCase("PANEL2")) {
-        rotationAngle2 = angle;
-        Serial.printf("Panel2 angle set to %d\n", rotationAngle2);
-        if (_currentAnimationIndex == 0 && _currentAnimation) {
-            auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
-            traffic->setRotationAngle2(rotationAngle2);
-        }
-    }
-    else if (panel.equalsIgnoreCase("PANEL3")) {
-        // If you define a 3rd angle
-        Serial.printf("Panel3 angle set to %d\n", angle);
-        if (_currentAnimationIndex == 0 && _currentAnimation) {
-            auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
-            traffic->setRotationAngle3(angle);
+    else if(panel.equalsIgnoreCase("PANEL2")){
+        rotationAngle2=angle;
+        Serial.printf("Panel2 angle set to %d\n", angle);
+        if(_currentAnimationIndex==0 && _currentAnimation){
+            auto t=(TrafficAnimation*)_currentAnimation;
+            t->setRotationAngle2(angle);
         }
     }
     else {
-        Serial.println("Unknown panel: use PANEL1, PANEL2, or PANEL3.");
+        Serial.printf("Unknown panel: %s\n", panel.c_str());
     }
 }
 int LEDManager::getRotation(String panel) const {
-    if (panel.equalsIgnoreCase("PANEL1")) {
+    if(panel.equalsIgnoreCase("PANEL1")){
         return rotationAngle1;
     }
-    if (panel.equalsIgnoreCase("PANEL2")) {
+    else if(panel.equalsIgnoreCase("PANEL2")){
         return rotationAngle2;
     }
-    // etc. If you had panel3, handle that
     return -1;
 }
 
-// ---------- Update Speed ----------
-void LEDManager::setUpdateSpeed(unsigned long speed) {
-    if (speed >= 10 && speed <= 60000) {
-        ledUpdateInterval = speed;
-        Serial.printf("LED update speed set to %lu ms\n", ledUpdateInterval);
-
-        if (_currentAnimationIndex == 0 && _currentAnimation) {
-            auto traffic = static_cast<TrafficAnimation*>(_currentAnimation);
-            traffic->setUpdateInterval(speed);
+void LEDManager::setUpdateSpeed(unsigned long speed){
+    if(speed>=10 && speed<=60000){
+        ledUpdateInterval=speed;
+        Serial.printf("LED update speed set to %lu ms\n", speed);
+        if(_currentAnimationIndex==0 && _currentAnimation){
+            auto t=(TrafficAnimation*)_currentAnimation;
+            t->setUpdateInterval(speed);
         }
-        else if (_currentAnimationIndex == 1 && _currentAnimation) {
-            auto blink = static_cast<BlinkAnimation*>(_currentAnimation);
-            blink->setInterval(speed);
+        else if(_currentAnimationIndex==1 && _currentAnimation){
+            auto bA=(BlinkAnimation*)_currentAnimation;
+            bA->setInterval(speed);
         }
-        else if (_currentAnimationIndex == 2 && _currentAnimation) {
-            auto wave = static_cast<RainbowWaveAnimation*>(_currentAnimation);
-            wave->setUpdateInterval(speed);
+        else if(_currentAnimationIndex==2 && _currentAnimation){
+            auto wA=(RainbowWaveAnimation*)_currentAnimation;
+            wA->setUpdateInterval(speed);
         }
-    }
-    else {
-        Serial.println("Invalid speed. Must be 10..60000.");
+    } else {
+        Serial.println("Invalid speed. Must be 10..60000");
     }
 }
-
 unsigned long LEDManager::getUpdateSpeed() const {
     return ledUpdateInterval;
 }

@@ -11,8 +11,7 @@ function log(msg) {
 }
 
 /************************************************
- * 1) On window load, fetch animations, palettes,
- *    brightness, speed, panelCount, etc.
+ * On window load, fetch initial data
  ************************************************/
 window.addEventListener("load", () => {
   log("Page loaded, fetching data...");
@@ -34,7 +33,7 @@ window.addEventListener("load", () => {
         opt.innerText = `${idx + 1}: ${p}`;
         paletteSelect.appendChild(opt);
       });
-      getPalette(); // fetch the current palette index from server
+      getPalette(); // Get current palette index
     })
     .catch((err) => log("Error fetching /api/listPalettes: " + err));
 
@@ -115,7 +114,7 @@ window.addEventListener("load", () => {
 });
 
 /************************************************
- * 2) Animations
+ * Animations
  ************************************************/
 function loadAnimationList() {
   fetch("/api/listAnimations")
@@ -148,7 +147,9 @@ if (selAnimation) {
   });
 }
 
-// Example: get current palette
+/************************************************
+ * Palettes
+ ************************************************/
 function getPalette() {
   fetch("/api/getPalette")
     .then((r) => r.json())
@@ -176,7 +177,7 @@ if (paletteSelect) {
 }
 
 /************************************************
- * 3) Speed Slider
+ * Speed Slider
  ************************************************/
 function sliderToSpeed(slVal) {
   const minSpeed = 10,
@@ -202,11 +203,11 @@ function speedToSliderVal(spd) {
 const sSpeed = document.getElementById("sliderSpeed");
 const tSpeed = document.getElementById("txtSpeed");
 if (sSpeed && tSpeed) {
-  // Move slider => update number in real time
+  // 'input' => real-time update
   sSpeed.addEventListener("input", () => {
     tSpeed.value = sliderToSpeed(parseInt(sSpeed.value, 10));
   });
-  // Let go of slider => call /api
+  // 'change' => call API
   sSpeed.addEventListener("change", () => {
     const val = sliderToSpeed(parseInt(sSpeed.value, 10));
     tSpeed.value = val;
@@ -215,7 +216,7 @@ if (sSpeed && tSpeed) {
       .then((txt) => log(txt))
       .catch((err) => log("setSpeed error:" + err));
   });
-  // Number box => on input => update slider, on change => call /api
+  // number => 'input' => update slider
   tSpeed.addEventListener("input", () => {
     let typedVal = parseInt(tSpeed.value, 10);
     if (isNaN(typedVal)) typedVal = 10;
@@ -223,6 +224,7 @@ if (sSpeed && tSpeed) {
     if (typedVal > 60000) typedVal = 60000;
     sSpeed.value = speedToSliderVal(typedVal);
   });
+  // number => 'change' => call API
   tSpeed.addEventListener("change", () => {
     let typedVal = parseInt(tSpeed.value, 10);
     if (isNaN(typedVal)) typedVal = 10;
@@ -244,8 +246,7 @@ function updateSpeedUI(spd) {
 }
 
 /************************************************
- * 4) Sliders for Brightness, Fade, Tail, Spawn, MaxFlakes
- *    same pattern: 'input' => sync the number, 'change' => call /api
+ * Sliders for: Brightness, Fade, Tail, Spawn, MaxFlakes
  ************************************************/
 function bindSliderAndNumber(
   sliderId,
@@ -259,17 +260,17 @@ function bindSliderAndNumber(
   const number = document.getElementById(numberId);
   if (!slider || !number) return;
 
-  // 'input' => update text box in real time
+  // real-time sync from slider->number
   slider.addEventListener("input", () => {
     number.value = slider.value;
   });
-  // 'change' => call /api
+  // call /api on 'change'
   slider.addEventListener("change", () => {
     number.value = slider.value;
     sendValueToApi(apiUrl, slider.value);
   });
 
-  // text box => 'input' => update slider in real time
+  // real-time sync from number->slider
   number.addEventListener("input", () => {
     let val = isFloat ? parseFloat(number.value) : parseInt(number.value, 10);
     if (isNaN(val)) val = minVal;
@@ -278,7 +279,7 @@ function bindSliderAndNumber(
     number.value = val;
     slider.value = val;
   });
-  // text box => 'change' => call /api
+  // call /api on 'change'
   number.addEventListener("change", () => {
     sendValueToApi(apiUrl, slider.value);
   });
@@ -291,7 +292,7 @@ function sendValueToApi(apiUrl, val) {
     .catch((err) => log(`Error calling ${apiUrl}: ` + err));
 }
 
-// Apply to your brightness, fade, tail, spawn, maxFlakes
+// brightness, fade, tail, spawn, maxFlakes
 bindSliderAndNumber(
   "sliderBrightness",
   "numBrightness",
@@ -305,14 +306,14 @@ bindSliderAndNumber("sliderSpawn", "numSpawn", "setSpawnRate", 0, 1, true);
 bindSliderAndNumber("sliderMaxFlakes", "numMaxFlakes", "setMaxFlakes", 10, 500);
 
 /************************************************
- * 5) Panel Count (needs an Apply button)
+ * 5) Panel Count
  ************************************************/
 const sliderPanelCount = document.getElementById("sliderPanelCount");
 const numPanelCount = document.getElementById("numPanelCount");
 const btnSetPanelCount = document.getElementById("btnSetPanelCount");
 
 if (sliderPanelCount && numPanelCount) {
-  // Real-time sync, but do NOT call /api on slider change
+  // real-time sync, no /api call
   sliderPanelCount.addEventListener("input", () => {
     numPanelCount.value = sliderPanelCount.value;
   });
@@ -320,6 +321,7 @@ if (sliderPanelCount && numPanelCount) {
     sliderPanelCount.value = numPanelCount.value;
   });
 }
+
 if (btnSetPanelCount) {
   btnSetPanelCount.addEventListener("click", () => {
     let val = parseInt(numPanelCount.value, 10);
@@ -347,40 +349,15 @@ function getPanelCount() {
 }
 
 /************************************************
- * 6) Panel Order, Rotation, etc. (unchanged)
+ * 6) Identify Panels
  ************************************************/
-const selPanelOrder = document.getElementById("selPanelOrder");
-const btnSetPanelOrder = document.getElementById("btnSetPanelOrder");
-if (btnSetPanelOrder) {
-  btnSetPanelOrder.addEventListener("click", () => {
-    const val = selPanelOrder.value;
-    fetch(`/api/setPanelOrder?val=${val}`)
+const btnIdentifyPanels = document.getElementById("btnIdentifyPanels");
+if (btnIdentifyPanels) {
+  btnIdentifyPanels.addEventListener("click", () => {
+    log("Identify panels clicked...");
+    fetch("/api/identifyPanels")
       .then((r) => r.text())
       .then((txt) => log(txt))
-      .catch((err) => log("setPanelOrder error:" + err));
-  });
-}
-
-const selRotateP1 = document.getElementById("selRotateP1");
-const btnRotateP1 = document.getElementById("btnRotateP1");
-if (btnRotateP1) {
-  btnRotateP1.addEventListener("click", () => {
-    const val = selRotateP1.value;
-    fetch(`/api/rotatePanel1?val=${val}`)
-      .then((r) => r.text())
-      .then((txt) => log(txt))
-      .catch((err) => log("rotatePanel1 error:" + err));
-  });
-}
-
-const selRotateP2 = document.getElementById("selRotateP2");
-const btnRotateP2 = document.getElementById("btnRotateP2");
-if (btnRotateP2) {
-  btnRotateP2.addEventListener("click", () => {
-    const val = selRotateP2.value;
-    fetch(`/api/rotatePanel2?val=${val}`)
-      .then((r) => r.text())
-      .then((txt) => log(txt))
-      .catch((err) => log("rotatePanel2 error:" + err));
+      .catch((err) => log("identifyPanels error: " + err));
   });
 }

@@ -41,9 +41,6 @@
         margin-left: 10px;
         width: 60px;
       }
-      .dropdown-container select {
-        margin-left: 10px;
-      }
       button {
         padding: 8px 16px;
         margin-left: 10px;
@@ -79,20 +76,18 @@
     <!-- Animations -->
     <div class="section">
       <h2>Animations</h2>
-      <div class="dropdown-container">
+      <div>
         <label for="selAnimation">Select Animation:</label>
         <select id="selAnimation"></select>
-        <!-- No "Set" button: selecting triggers the animation change. -->
       </div>
     </div>
 
     <!-- Palettes -->
     <div class="section">
       <h2>Palettes</h2>
-      <div class="dropdown-container">
+      <div>
         <label for="paletteSelect">Select Palette:</label>
         <select id="paletteSelect"></select>
-        <!-- No "Set" button: selecting triggers the palette change. -->
       </div>
     </div>
 
@@ -189,38 +184,9 @@
         <button id="btnSetPanelCount">Apply</button>
       </div>
 
-      <!-- Removed the Swap Panels button per your request -->
-
-      <!-- Panel Order -->
-      <div class="dropdown-container" style="margin-bottom: 10px">
-        <label>Panel Order:</label>
-        <select id="selPanelOrder">
-          <option value="left">Left</option>
-          <option value="right">Right</option>
-        </select>
-        <button id="btnSetPanelOrder">Set</button>
-      </div>
-
-      <!-- Rotate Panel 1/2 -->
-      <div class="dropdown-container">
-        <label>Rotate Panel1:</label>
-        <select id="selRotateP1">
-          <option value="0">0</option>
-          <option value="90">90</option>
-          <option value="180">180</option>
-          <option value="270">270</option>
-        </select>
-        <button id="btnRotateP1">Rotate</button>
-      </div>
-      <div class="dropdown-container">
-        <label>Rotate Panel2:</label>
-        <select id="selRotateP2">
-          <option value="0">0</option>
-          <option value="90">90</option>
-          <option value="180">180</option>
-          <option value="270">270</option>
-        </select>
-        <button id="btnRotateP2">Rotate</button>
+      <!-- Identify Panels -->
+      <div class="button-container" style="margin-bottom: 10px">
+        <button id="btnIdentifyPanels">Identify Panels</button>
       </div>
     </div>
 
@@ -230,7 +196,6 @@
       <div id="log"></div>
     </div>
 
-    <!-- Link to external JS -->
     <script src="/script.js"></script>
   </body>
 </html>
