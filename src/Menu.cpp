@@ -1,229 +1,343 @@
 #include "Menu.h"
+#include "LEDManager.h"
 
-// The 5 top-level items for "Home"
-const char* Menu::level0Folders[LEVEL0_COUNT] = {
-  "Red",
-  "Blue",
-  "Green",
-  "Orange",
-  "Purple"
+extern LEDManager ledManager;
+
+// The 8 items for the home menu
+const char* Menu::homeItems[HOME_COUNT] = {
+    "Start Animation", 
+    "Brightness", 
+    "Fade Amount", 
+    "Tail Length", 
+    "Spawn Rate", 
+    "Max Flakes", 
+    "Speed", 
+    "Select Anim"
 };
 
+// --------------------------------------------------------
+// Constructor
+// --------------------------------------------------------
 Menu::Menu()
-  : currentLevel(0),
-    waitingForSecondClick(false),
+  : selection(0),
+    offset(0),
+    editSettingIndex(-1),
+    pendingSingleClick(false),
     lastPressTime(0),
-    lastEncoderRaw(0)
+    lastEncoderPos(0)
 {
-    // Initialize selection & offset
-    for(int lvl=0; lvl<3; lvl++){
-        selection[lvl] = 0;
-        offset[lvl] = 0;
-        folderNames[lvl] = "";
-    }
-    // top-level name is "Home"
-    folderNames[0] = "Home";
 }
 
-void Menu::begin(){
-    // nothing special
+void Menu::begin() {
+    // no special init
 }
 
-int Menu::wrapIndex(int idx, int maxVal){
-    if(idx<0) idx = maxVal-1;
-    if(idx>=maxVal) idx = 0;
-    return idx;
-}
-
-// We'll fill folderNames[1] with whichever color was chosen at level0
-// and folderNames[2] with e.g. "Red 3" if subfolder=2 => #=3
-void Menu::setFolderNames(){
-    // level0 = "Home"
-    folderNames[0] = "Home";
-    // level1 => the color user selected at level0
-    int colIdx = selection[0]; // 0..4
-    folderNames[1] = level0Folders[colIdx]; // e.g. "Red"
-
-    // level2 => e.g. "Red 3" if selection[1] = 2 => 3
-    int subNum = selection[1]+1; // 1..7
-    folderNames[2] = folderNames[1] + " " + String(subNum);
-}
-
-// single/double click detection
-int Menu::checkButtonEvents(RotaryEncoder &encoder){
-    if(encoder.isButtonPressed()){
-        unsigned long now = millis();
-        if(!waitingForSecondClick){
-            waitingForSecondClick=true;
-            lastPressTime= now;
-            return 0;
-        } else {
-            if((now - lastPressTime)<= doubleClickThreshold){
-                waitingForSecondClick=false;
-                return 2; // double
-            } else {
-                waitingForSecondClick=true;
-                lastPressTime= now;
-                return 1; // single
-            }
-        }
-    }
-
-    if(waitingForSecondClick && (millis()-lastPressTime)>doubleClickThreshold){
-        waitingForSecondClick=false;
-        return 1; // single
-    }
-    return 0;
-}
-
+// --------------------------------------------------------
+// update()
+// --------------------------------------------------------
 void Menu::update(RotaryEncoder &encoder) {
-    // 1) Read raw encoder, find delta
     encoder.update();
-    int raw = encoder.getPosition();
-    int delta = raw - lastEncoderRaw;
-    if (delta != 0) {
-        lastEncoderRaw = raw;
+    int rawPos = encoder.getPosition();
+    int delta = rawPos - lastEncoderPos;
+    bool pressed = encoder.isButtonPressed();
 
-        // figure out how many items in this level
-        int maxItems;
-        if (currentLevel == 0) maxItems = LEVEL0_COUNT;
-        else if (currentLevel == 1) maxItems = LEVEL1_COUNT;
-        else maxItems = LEVEL2_COUNT;
-
-        // Scrolling logic: wrap selection, then clamp offset
-        if (delta > 0) {
-            selection[currentLevel]++;
+    // Single/double-click detection
+    if(pressed) {
+        unsigned long now = millis();
+        if(!pendingSingleClick) {
+            // first press
+            pendingSingleClick = true;
+            lastPressTime = now;
         } else {
-            selection[currentLevel]--;
-        }
-        // wrap
-        if (selection[currentLevel] < 0) {
-            selection[currentLevel] = maxItems - 1;
-        }
-        if (selection[currentLevel] >= maxItems) {
-            selection[currentLevel] = 0;
-        }
-
-        // Keep selection visible in [offset..offset+3]
-        if (selection[currentLevel] < offset[currentLevel]) {
-            offset[currentLevel] = selection[currentLevel];
-        }
-        if (selection[currentLevel] >= offset[currentLevel] + VISIBLE_LINES) {
-            offset[currentLevel] = selection[currentLevel] - (VISIBLE_LINES - 1);
-        }
-
-        // If maxItems < 4 => offset=0 always
-        if (maxItems < VISIBLE_LINES) {
-            offset[currentLevel] = 0;
-        } else {
-            // clamp offset in [0..maxItems - VISIBLE_LINES]
-            if (offset[currentLevel] < 0) offset[currentLevel] = 0;
-            if (offset[currentLevel] > (maxItems - VISIBLE_LINES)) {
-                offset[currentLevel] = maxItems - VISIBLE_LINES;
+            // second press => double-click
+            pendingSingleClick = false;
+            // if editing => stop
+            if(editSettingIndex != -1) {
+                editSettingIndex = -1;
             }
         }
     }
 
-    // 2) Check single/double-click
-    int ev = checkButtonEvents(encoder);
-    if (ev == 1) {
-        // single => go deeper if currentLevel < 2
-        if (currentLevel < 2) {
-            currentLevel++;
+    if(pendingSingleClick && (millis()-lastPressTime > doubleClickThreshold)) {
+        pendingSingleClick = false;
+        handleSingleClick(rawPos);
+    }
 
-            // Start new level at item=0
-            selection[currentLevel] = 0;
-            offset[currentLevel]    = 0;
+    // If we are editing => interpret delta as "change setting"
+    if(editSettingIndex != -1 && delta!=0) {
+        updateEditSetting(delta);
+    }
+    // else interpret as "move selection up/down"
+    else if(editSettingIndex==-1 && delta!=0) {
+        // move selection
+        selection += (delta>0?1:-1);
+        if(selection<0) selection=HOME_COUNT-1;
+        if(selection>=HOME_COUNT) selection=0;
 
-            // CRUCIAL fix => reset lastEncoderRaw to raw
-            // so no immediate "jump" from leftover delta.
-            lastEncoderRaw = raw;
+        // partial scrolling
+        if(selection<offset) offset=selection;
+        if(selection>= offset+VISIBLE_LINES) offset= selection-(VISIBLE_LINES-1);
+        if(offset<0) offset=0;
+        if(offset>HOME_COUNT - VISIBLE_LINES) offset= HOME_COUNT - VISIBLE_LINES;
+    }
 
-            // If you update folder names or do other init:
-            setFolderNames();
+    lastEncoderPos= rawPos;
+}
+
+// --------------------------------------------------------
+// handleSingleClick()
+// --------------------------------------------------------
+void Menu::handleSingleClick(int rawPos) {
+    if(editSettingIndex != -1) {
+        // done editing
+        editSettingIndex = -1;
+        return;
+    }
+    // not editing => interpret selection
+    switch(selection){
+        case 0: // Start Animation
+        {
+            // just re-start the current anim or do logic
+            ledManager.setAnimation(ledManager.getAnimation());
+            Serial.println("Start Animation clicked");
+            break;
         }
-    } 
-    else if (ev == 2) {
-        // double => go back if >0
-        if (currentLevel > 0) {
-            currentLevel--;
-
-            // Also reset so we don't jump
-            lastEncoderRaw = raw;
+        case 1: // brightness
+        case 2: // fade
+        case 3: // tail
+        case 4: // spawn
+        case 5: // flakes
+        case 6: // speed
+        {
+            editSettingIndex = selection; // now we show partial bar, remain on same screen
+            break;
+        }
+        case 7: // "Select Anim"
+        {
+            Serial.println("Select Anim clicked => do your logic");
+            // maybe open sub-sub-menu, or do something else
+            break;
         }
     }
 }
 
-void Menu::draw(U8G2 &u8g2){
+// --------------------------------------------------------
+// updateEditSetting()
+//   rotate => modifies the relevant setting
+// --------------------------------------------------------
+void Menu::updateEditSetting(int delta) {
+    switch(editSettingIndex){
+        case 1: // brightness 0..255
+        {
+            uint8_t b= ledManager.getBrightness();
+            int newB= b + (delta*5);
+            if(newB<0) newB=0;
+            if(newB>255) newB=255;
+            ledManager.setBrightness((uint8_t)newB);
+            break;
+        }
+        case 2: // fade 0..255
+        {
+            uint8_t f= ledManager.getFadeAmount();
+            int newF= f + (delta*5);
+            if(newF<0) newF=0;
+            if(newF>255) newF=255;
+            ledManager.setFadeAmount((uint8_t)newF);
+            break;
+        }
+        case 3: // tail 0..30
+        {
+            int t= ledManager.getTailLength();
+            t += delta;
+            if(t<0) t=0;
+            if(t>30) t=30;
+            ledManager.setTailLength(t);
+            break;
+        }
+        case 4: // spawn 0..1
+        {
+            float sr= ledManager.getSpawnRate();
+            sr += (delta*0.05f);
+            sr= clampFloat(sr,0.0f,1.0f);
+            ledManager.setSpawnRate(sr);
+            break;
+        }
+        case 5: // flakes 0..500
+        {
+            int mf= ledManager.getMaxFlakes();
+            mf += (delta*10);
+            if(mf<0) mf=0;
+            if(mf>500) mf=500;
+            ledManager.setMaxFlakes(mf);
+            break;
+        }
+        case 6: // speed 10..60000
+        {
+            unsigned long spd= ledManager.getUpdateSpeed();
+            long step= (delta*500);
+            long newSpd= (long)spd + step;
+            if(newSpd<0) newSpd=0;
+            unsigned long finalSpd= clampULong((unsigned long)newSpd,10,60000);
+            ledManager.setUpdateSpeed(finalSpd);
+            break;
+        }
+    }
+}
+
+// --------------------------------------------------------
+// draw()
+// --------------------------------------------------------
+void Menu::draw(U8G2 &u8g2) {
     u8g2.clearBuffer();
 
-    // figure out how many items for this level
-    int maxItems;
-    if(currentLevel==0) maxItems= LEVEL0_COUNT;
-    else if(currentLevel==1) maxItems= LEVEL1_COUNT;
-    else maxItems= LEVEL2_COUNT;
+    // top bar
+    drawTopBar(u8g2);
 
-    // topName:
-    if(currentLevel==0){
-        folderNames[0] = "Home";
-    }
-    else if(currentLevel==1){
-        int idx0 = selection[0];
-        folderNames[1] = level0Folders[idx0];
-    }
-    else {
-        // e.g. "Red 3"
-        int idx0 = selection[0];
-        const char* color = level0Folders[idx0];
-        int subNum = selection[1]+1; // 1..7
-        folderNames[2] = String(color)+" "+String(subNum);
-    }
-
-    String topName = folderNames[currentLevel];
-    u8g2.setFont(u8g2_font_6x12_tr);
-    int tw = u8g2.getStrWidth(topName.c_str());
-    int x = (128 - tw)/2;
-    int y = 12;
-    u8g2.setCursor(x,y);
-    u8g2.print(topName);
-
-    // draw 4 lines from offset..offset+3
-    for(int line=0; line<VISIBLE_LINES; line++){
-        int idx = offset[currentLevel] + line;
-        // check bounds
-        if(idx>= maxItems) break; // no more
-
-        // build line name
-        String lineName;
-        if(currentLevel==0){
-            // from level0Folders
-            lineName= level0Folders[idx];
-        } else if(currentLevel==1){
-            // e.g. "Red 2" if idx=1 => "Red 2"
-            const char* color = level0Folders[ selection[0] ];
-            int sub= idx+1;
-            lineName= String(color)+" "+String(sub);
-        } else {
-            // e.g. "Red 3 A"
-            const char* color = level0Folders[ selection[0] ];
-            int subNum= selection[1]+1;
-            char c= 'A'+ idx;
-            lineName= String(color)+" "+String(subNum)+" "+c;
-        }
-
-        int drawY= 24+ line*12;
-        if(idx== selection[currentLevel]){
-            // highlight
-            u8g2.drawBox(0, drawY-10, 128,12);
-            u8g2.setDrawColor(0);
-            u8g2.setCursor(2, drawY);
-            u8g2.print(lineName);
-            u8g2.setDrawColor(1);
-        } else {
-            u8g2.setCursor(2, drawY);
-            u8g2.print(lineName);
-        }
-    }
+    // menu list
+    drawMenuList(u8g2);
 
     u8g2.sendBuffer();
+}
+
+// --------------------------------------------------------
+// drawTopBar()
+//   If editSettingIndex != -1 => partial bar with the setting name
+//   else => "Home"
+// --------------------------------------------------------
+void Menu::drawTopBar(U8G2 &u8g2){
+    if(editSettingIndex==-1) {
+        // draw "Home"
+        u8g2.setFont(u8g2_font_6x12_tr);
+        String title="Home";
+        int tw= u8g2.getStrWidth(title.c_str());
+        int xx=(128 - tw)/2;
+        u8g2.setCursor(xx,12);
+        u8g2.print(title);
+    }
+    else {
+        // partial bar
+        String label= homeItems[editSettingIndex];
+        float ratio=0.0f;
+        switch(editSettingIndex){
+            case 1: {
+                // brightness
+                uint8_t b= ledManager.getBrightness();
+                ratio= (float)b/255.0f;
+                break;
+            }
+            case 2: {
+                uint8_t f= ledManager.getFadeAmount();
+                ratio= (float)f/255.0f;
+                break;
+            }
+            case 3: {
+                int t= ledManager.getTailLength();
+                ratio= (float)t/30.0f;
+                break;
+            }
+            case 4: {
+                float sr= ledManager.getSpawnRate();
+                ratio= clampFloat(sr,0.0f,1.0f);
+                break;
+            }
+            case 5: {
+                int mf= ledManager.getMaxFlakes();
+                if(mf<0) mf=0;
+                if(mf>500) mf=500;
+                ratio= (float)mf/500.0f;
+                break;
+            }
+            case 6: {
+                unsigned long spd= ledManager.getUpdateSpeed();
+                if(spd<10) spd=10;
+                if(spd>60000) spd=60000;
+                ratio= (float)(spd-10)/(60000.0f-10.0f);
+                // or simpler ratio= spd/60000.0f
+                break;
+            }
+        }
+        drawPartialBar(u8g2, label, ratio);
+    }
+}
+
+// --------------------------------------------------------
+// drawMenuList()
+//   We show items offset..offset+3. The user sees 4 lines max
+//   The selected line is highlighted if not in edit mode
+// --------------------------------------------------------
+void Menu::drawMenuList(U8G2 &u8g2){
+    u8g2.setFont(u8g2_font_6x12_tr);
+    for(int line=0; line<VISIBLE_LINES; line++){
+        int idx= offset + line;
+        if(idx>=HOME_COUNT) break;
+
+        int drawY= 24 + line*12; 
+        bool highlight= (idx==selection && editSettingIndex==-1);
+        if(highlight){
+            u8g2.drawBox(0, drawY-10, 128,12);
+            u8g2.setDrawColor(0);
+        }
+        u8g2.setCursor(2, drawY);
+        u8g2.print(homeItems[idx]);
+        if(highlight){
+            u8g2.setDrawColor(1);
+        }
+    }
+}
+
+// --------------------------------------------------------
+// drawPartialBar()
+//   We do a "clip" approach so that we partially reverse text
+//   in the region [0..(ratio*128)].
+// --------------------------------------------------------
+void Menu::drawPartialBar(U8G2 &u8g2, const String &label, float ratio){
+    if(ratio<0.0f) ratio=0.0f;
+    if(ratio>1.0f) ratio=1.0f;
+
+    int highlightWidth= (int)(ratio * 128);
+
+    // 1) fill that region white
+    if(highlightWidth>0) {
+        u8g2.drawBox(0,0, highlightWidth,12);
+    }
+
+    // measure text
+    u8g2.setFont(u8g2_font_6x12_tr);
+    int tw= u8g2.getStrWidth(label.c_str());
+    int tx= (128 - tw)/2;
+    int ty=10;
+
+    // We'll use clipping. 
+    // (a) clip to left portion => black text
+    if(highlightWidth>0) {
+        u8g2.setDrawColor(0); // black text
+        u8g2.setClipWindow(0,0, highlightWidth,12);  // left portion
+        u8g2.setCursor(tx, ty);
+        u8g2.print(label);
+        u8g2.setClipWindow(0,0,128,64); // reset to entire
+        u8g2.setDrawColor(1);          // restore white
+    }
+
+    // (b) clip to right portion => white text on black
+    if(highlightWidth<128) {
+        u8g2.setDrawColor(1); // white text
+        u8g2.setClipWindow(highlightWidth,0,128,12);
+        u8g2.setCursor(tx,ty);
+        u8g2.print(label);
+        u8g2.setClipWindow(0,0,128,64); // reset
+    }
+}
+
+// --------------------------------------------------------
+// clamp helpers
+// --------------------------------------------------------
+float Menu::clampFloat(float x, float mn, float mx){
+    if(x<mn) x=mn;
+    if(x>mx) x=mx;
+    return x;
+}
+unsigned long Menu::clampULong(unsigned long x, unsigned long mn, unsigned long mx){
+    if(x<mn) x=mn;
+    if(x>mx) x=mx;
+    return x;
 }

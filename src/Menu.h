@@ -6,66 +6,91 @@
 #include "RotaryEncoder.h"
 
 /*
-   A 3-level menu:
-     Level 0 (Home): 5 color folders
-     Level 1: each color has 7 subfolders (e.g. "Red 1..7")
-     Level 2: each subfolder has 10 items (e.g. "Red 3 A..J")
+   Single-screen menu with 8 items:
+     0) "Start Animation"
+     1) "Brightness"  
+     2) "Fade Amount" 
+     3) "Tail Length"
+     4) "Spawn Rate"  
+     5) "Max Flakes"  
+     6) "Speed"       
+     7) "Select Animation"
 
-   4 lines visible on screen at once (partial scrolling).
-   Wrap-around scrolling top/bottom:
-     - If selection < 0 => selection = maxItems-1
-       If selection >= maxItems => selection=0
-   offset[level] = which item index is on line 0
-   If selection < offset => offset = selection
-   If selection >= offset+4 => offset = selection-3
-   (We clamp offset in [0..maxItems-4], if maxItems>=4).
+   - We only have space for 4 lines visible at once (after the top 12px bar).
+   - We keep "offset" so if 'selection' is 5, for example, we scroll down to show items 4..7.
 
-   Single click => go deeper if not at level2
-   Double click => go back if level>0
+   - If user single-clicks item #0 => calls setAnimation(...) or something.
+   - If user single-clicks item #1..6 => we do "edit mode" on that setting, but remain on the same screen:
+       * The top bar changes from "Home" to a partial highlight that shows the setting name.
+       * The partial highlight is the portion from x=0..(ratio*128).
+       * The text is reversed exactly in that portion (clip-based approach).
+       * Rotating the encoder changes that setting in real time.
+
+   - Single-click or double-click while editing => exit edit mode, top bar reverts to "Home".
+
+   - If user single-clicks item #7 => "Select Animation" => do your logic or open another sub-menu if you want.
+
+   - Partial Scrolling:
+       * We display 4 lines from offset..(offset+3).
+       * If selection < offset => offset=selection
+       * If selection >= offset+4 => offset=selection - 3
 */
 
 class Menu {
 public:
     Menu();
+
+    // Called once in setup()
     void begin();
+
+    // Called repeatedly in loop() with the encoder
     void update(RotaryEncoder &encoder);
+
+    // Draw the entire menu on the U8G2
     void draw(U8G2 &u8g2);
 
 private:
-    // Data sizes:
-    static const int LEVEL0_COUNT = 5;  // "Red","Blue","Green","Orange","Purple"
-    static const int LEVEL1_COUNT = 7;  // e.g. "Red 1..7"
-    static const int LEVEL2_COUNT = 10; // e.g. "Red 3 A..J"
+    // 8 items
+    static const int HOME_COUNT = 8;
+    static const char* homeItems[HOME_COUNT];
 
-    // 4 lines on screen
+    // We can show 4 lines at once
     static const int VISIBLE_LINES = 4;
 
-    // currentLevel in [0..2]
-    int currentLevel;
+    // current 'selection' in [0..7]
+    int selection;
 
-    // selection[level] = which item is selected in [0..n-1]
-    int selection[3];
-    // offset[level] = which item index is shown at line 0
-    int offset[3];
+    // offset so we only show items from offset..(offset+3)
+    int offset;
 
-    // We'll store the "folder name" for each level, e.g. "Home", "Red", "Red 3"
-    String folderNames[3];
+    // If editSettingIndex != -1 => we are editing that setting
+    // (1=Brightness,2=Fade,3=Tail,4=Spawn,5=Flakes,6=Speed)
+    int editSettingIndex;
 
-    // Hard-coded top-level folder names (level0)
-    static const char* level0Folders[LEVEL0_COUNT];
-
-    // Checking single/double click
-    int checkButtonEvents(RotaryEncoder &encoder);
-    bool waitingForSecondClick;
+    // single/double-click
+    bool pendingSingleClick;
     unsigned long lastPressTime;
     static const unsigned long doubleClickThreshold = 400;
+    int lastEncoderPos;
 
-    // We store last raw encoder reading so we can detect delta
-    int lastEncoderRaw;
+    // Finalize single-click
+    void handleSingleClick(int rawPos);
 
-    // helpers
-    int wrapIndex(int idx, int maxVal);
-    void setFolderNames();
+    // If we are editing => update that setting in real time
+    void updateEditSetting(int delta);
+
+    // draw partial top bar if editing, otherwise "Home"
+    void drawTopBar(U8G2 &u8g2);
+
+    // draw the menu items with partial scrolling
+    void drawMenuList(U8G2 &u8g2);
+
+    // partial text reversing:
+    void drawPartialBar(U8G2 &u8g2, const String &label, float ratio);
+
+    // clamp helpers
+    float clampFloat(float x, float mn, float mx);
+    unsigned long clampULong(unsigned long x, unsigned long mn, unsigned long mx);
 };
 
-#endif
+#endif // MENU_H

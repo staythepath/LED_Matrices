@@ -51,7 +51,7 @@ void LEDManager::reinitFastLED() {
         _numLeds = MAX_LEDS;
     }
     FastLED.clearData();
-    FastLED.addLeds<WS2812B, 21, GRB>(leds, _numLeds).setCorrection(TypicalLEDStrip);
+    FastLED.addLeds<WS2812B, 45, GRB>(leds, _numLeds).setCorrection(TypicalLEDStrip);
     FastLED.show();
 }
 
