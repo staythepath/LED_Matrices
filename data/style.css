@@ -1,0 +1,57 @@
+/* Basic resets and page styling */
+body {
+  font-family: Arial, sans-serif;
+  margin: 20px;
+  padding: 0;
+  background: #f4f4f9;
+  color: #333;
+}
+
+/* Headings */
+h1 {
+  color: #0056b3;
+  margin-top: 0;
+}
+h2 {
+  color: #333;
+}
+
+/* Navigation bar styling */
+nav {
+  margin-bottom: 20px;
+  padding: 10px;
+  background: #0056b3; /* A blue shade */
+  color: white;
+}
+nav a {
+  margin-right: 15px;
+  text-decoration: none;
+  color: white;
+  font-weight: bold;
+}
+nav a:hover {
+  text-decoration: underline;
+}
+
+/* Slider containers */
+.slider-container {
+  margin: 10px 0;
+  display: flex;
+  align-items: center;
+}
+.slider-container label {
+  width: 120px;
+  font-weight: bold;
+}
+.slider-container input[type="range"] {
+  margin: 0 10px;
+}
+
+/* Footer styling */
+footer {
+  margin-top: 20px;
+  text-align: center;
+  font-size: 0.8em;
+  color: #555;
+  padding-bottom: 20px;
+}

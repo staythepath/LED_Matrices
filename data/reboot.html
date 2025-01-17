@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Reboot Device</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+        padding: 0;
+        background: #f4f4f9;
+        color: #333;
+      }
+      h1 {
+        color: #0056b3;
+      }
+      nav {
+        margin-bottom: 20px;
+        padding: 10px;
+        background: #0056b3;
+        color: white;
+      }
+      nav a {
+        margin-right: 15px;
+        text-decoration: none;
+        color: white;
+        font-weight: bold;
+      }
+      nav a:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/status">Status</a>
+      <a href="/update">Update Firmware</a>
+      <a href="/updatefs">Update SPIFFS</a>
+      <a href="/reboot">Reboot</a>
+      <a href="/control">Control Panel</a>
+    </nav>
+    <h1>Reboot Device</h1>
+    <p>Click the button below to reboot immediately.</p>
+    <button id="rebootBtn">Reboot Now</button>
+
+    <script>
+      document
+        .getElementById("rebootBtn")
+        .addEventListener("click", function () {
+          fetch("/rebootNow")
+            .then((response) => response.text())
+            .then((text) => {
+              alert(text);
+            });
+        });
+    </script>
+  </body>
+</html>

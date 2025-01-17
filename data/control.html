@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>LED Control</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+        background: #f4f4f9;
+        color: #333;
+        padding: 20px;
+      }
+      h1 {
+        color: #0056b3;
+      }
+      .section {
+        background: #fff;
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 8px;
+        box-shadow: 0 0 3px rgba(0, 0, 0, 0.2);
+      }
+      label {
+        display: inline-block;
+        width: 120px;
+        font-weight: bold;
+      }
+      .slider-container,
+      .dropdown-container,
+      .button-container {
+        margin: 10px 0;
+        display: flex;
+        align-items: center;
+      }
+      .slider-container input[type="range"] {
+        margin: 0 10px;
+        width: 200px;
+      }
+      .slider-container input[type="number"] {
+        margin-left: 10px;
+        width: 60px;
+      }
+      button {
+        padding: 8px 16px;
+        margin-left: 10px;
+        cursor: pointer;
+      }
+      nav a {
+        margin-right: 15px;
+        text-decoration: none;
+        color: #0056b3;
+        font-weight: bold;
+      }
+      #log {
+        border: 1px solid #ccc;
+        padding: 5px;
+        height: 100px;
+        overflow-y: auto;
+        background: #fafafa;
+      }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/status">Status</a>
+      <a href="/update">Update Firmware</a>
+      <a href="/updatefs">Update SPIFFS</a>
+      <a href="/reboot">Reboot</a>
+      <a href="/control">Control Panel</a>
+    </nav>
+
+    <h1>LED Control Panel</h1>
+
+    <!-- Animations -->
+    <div class="section">
+      <h2>Animations</h2>
+      <div>
+        <label for="selAnimation">Select Animation:</label>
+        <select id="selAnimation"></select>
+      </div>
+    </div>
+
+    <!-- Palettes -->
+    <div class="section">
+      <h2>Palettes</h2>
+      <div>
+        <label for="paletteSelect">Select Palette:</label>
+        <select id="paletteSelect"></select>
+      </div>
+    </div>
+
+    <!-- Brightness / Fade / Tail / Spawn / Max Flakes / Speed -->
+    <div class="section">
+      <h2>Flake Settings</h2>
+
+      <div class="slider-container">
+        <label>Brightness:</label>
+        <input
+          type="range"
+          id="sliderBrightness"
+          min="0"
+          max="255"
+          value="30"
+        />
+        <input type="number" id="numBrightness" min="0" max="255" value="30" />
+      </div>
+
+      <div class="slider-container">
+        <label>Fade Amount:</label>
+        <input type="range" id="sliderFade" min="0" max="255" value="80" />
+        <input type="number" id="numFade" min="0" max="255" value="80" />
+      </div>
+
+      <div class="slider-container">
+        <label>Tail Length:</label>
+        <input type="range" id="sliderTail" min="1" max="30" value="5" />
+        <input type="number" id="numTail" min="1" max="30" value="5" />
+      </div>
+
+      <div class="slider-container">
+        <label>Spawn Rate:</label>
+        <input
+          type="range"
+          id="sliderSpawn"
+          step="0.01"
+          min="0"
+          max="1"
+          value="0.6"
+        />
+        <input
+          type="number"
+          id="numSpawn"
+          step="0.01"
+          min="0"
+          max="1"
+          value="0.6"
+        />
+      </div>
+
+      <div class="slider-container">
+        <label>Max Flakes:</label>
+        <input
+          type="range"
+          id="sliderMaxFlakes"
+          min="10"
+          max="500"
+          value="200"
+        />
+        <input type="number" id="numMaxFlakes" min="10" max="500" value="200" />
+      </div>
+
+      <div class="slider-container">
+        <label>Update Speed (ms):</label>
+        <input
+          type="range"
+          id="sliderSpeed"
+          min="0"
+          max="100"
+          step="1"
+          value="10"
+        />
+        <input
+          type="number"
+          id="txtSpeed"
+          min="10"
+          max="60000"
+          step="1"
+          value="80"
+        />
+      </div>
+    </div>
+
+    <!-- Panel Settings -->
+    <div class="section">
+      <h2>Panel Settings</h2>
+
+      <!-- Panel Count -->
+      <div class="slider-container" style="margin-bottom: 10px">
+        <label>Panel Count (16x16 each):</label>
+        <input type="range" id="sliderPanelCount" min="1" max="8" value="3" />
+        <input type="number" id="numPanelCount" min="1" max="8" value="3" />
+        <button id="btnSetPanelCount">Apply</button>
+      </div>
+
+      <!-- Identify Panels -->
+      <div class="button-container" style="margin-bottom: 10px">
+        <button id="btnIdentifyPanels">Identify Panels</button>
+      </div>
+    </div>
+
+    <!-- Log / Output -->
+    <div class="section">
+      <h2>Log</h2>
+      <div id="log"></div>
+    </div>
+
+    <script src="/script.js"></script>
+  </body>
+</html>

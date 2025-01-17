@@ -1,4 +1,3 @@
-// LEDManager.h
 #ifndef LEDMANAGER_H
 #define LEDMANAGER_H
 
@@ -6,107 +5,102 @@
 #include <vector>
 #include <Arduino.h>
 
-// Forward declaration for Flake struct
-struct Flake;
+// Up to 8 panels of 16×16
+static const int MAX_LEDS = 16 * 16 * 8;
+extern CRGB leds[MAX_LEDS];
 
-// Declare leds as extern
-extern CRGB leds[];
-
-// LED Configuration Constants
-#define LED_PIN     21
-#define NUM_LEDS    512
-#define LED_TYPE    WS2812B
-#define COLOR_ORDER GRB
-#define DEFAULT_BRIGHTNESS 30 // Initial brightness (0-255)
-
-// Flake Structure
-struct Flake {
-    int x; // X-coordinate
-    int y; // Y-coordinate
-    int dx; // Movement in X
-    int dy; // Movement in Y
-    float frac; // Fraction for color interpolation
-    CRGB startColor;
-    CRGB endColor;
-    bool bounce; // Whether the flake should bounce
-};
+class BaseAnimation;
 
 class LEDManager {
 public:
-    // Constructor
     LEDManager();
 
-    // Initialize LEDs
     void begin();
-
-    // Update LEDs (e.g., perform effects)
     void update();
+    void show();
 
-    // Brightness control
+    // Panel count
+    void setPanelCount(int count);
+    int  getPanelCount() const;
+
+    // Identify panels (stops animation, draws arrow+digit, waits 10s, restores)
+    void identifyPanels();
+
+    // Animations
+    void setAnimation(int animIndex);
+    int  getAnimation() const;
+    size_t getAnimationCount() const;
+    String getAnimationName(int animIndex) const;
+
+    // Brightness
     void setBrightness(uint8_t brightness);
     uint8_t getBrightness() const;
 
-    // Palette control
+    // Palette
     void setPalette(int paletteIndex);
-    int getCurrentPalette() const;
+    int  getCurrentPalette() const;
     size_t getPaletteCount() const;
     String getPaletteNameAt(int index) const;
     const std::vector<CRGB>& getCurrentPaletteColors() const;
 
-    // Tail and spawn rate control
-    void setFadeValue(int fadeValue);
-    int getFadeValue() const;
-
+    // Spawn
     void setSpawnRate(float rate);
     float getSpawnRate() const;
 
+    // Max "cars"
     void setMaxFlakes(int max);
-    int getMaxFlakes() const;
+    int  getMaxFlakes() const;
 
-    // Panel order and rotation control
+    // Tail + fade
+    void setTailLength(int length);
+    int  getTailLength() const;
+    void setFadeAmount(uint8_t amount);
+    uint8_t getFadeAmount() const;
+
+    // Panel (not currently used in HTML, but kept here)
     void swapPanels();
     void setPanelOrder(String order);
     void rotatePanel(String panel, int angle);
-    int getRotation(String panel) const;
+    int  getRotation(String panel) const;
 
-    // LED update speed control
+    // Speed
     void setUpdateSpeed(unsigned long speed);
     unsigned long getUpdateSpeed() const;
 
-    // Function to update the display (called from main loop)
-    void show();
+private:
+    // Re-init FastLED if panelCount changes
+    void reinitFastLED();
+    void cleanupAnimation();
+    void createPalettes();
+
+    // The bigger arrow + digit methods
+    void drawUpArrow(int baseIndex);
+    void drawLargeDigit(int baseIndex, int digit);
 
 private:
-    // LED Properties
+    int      _panelCount; // default: 3
     uint16_t _numLeds;
-    uint8_t _brightness;
 
-    // Palette Properties
+    uint8_t  _brightness;
     std::vector<std::vector<CRGB>> ALL_PALETTES;
-    std::vector<String> PALETTE_NAMES;
-    int currentPalette;
+    std::vector<String>            PALETTE_NAMES;
+    int                            currentPalette;
 
-    // Flake Properties
-    std::vector<Flake> flakes;
-    int fadeValue;
-    float spawnRate;
-    int maxFlakes;
+    BaseAnimation* _currentAnimation;
+    int            _currentAnimationIndex;
+    std::vector<String> _animationNames;
 
-    // Panel Properties
-    int panelOrder; // 0 = Left first, 1 = Right first
-    int rotationAngle1; // Rotation for Panel 1
-    int rotationAngle2; // Rotation for Panel 2
+    float   spawnRate;
+    int     maxFlakes;
+    int     tailLength;
+    uint8_t fadeAmount;
 
-    // LED Update Speed
-    unsigned long ledUpdateInterval; // in milliseconds
+    int panelOrder;
+    int rotationAngle1;
+    int rotationAngle2;
+
+    unsigned long ledUpdateInterval;
     unsigned long lastLedUpdate;
-
-    // Helper Functions
-    void spawnFlake();
-    void performSnowEffect();
-    CRGB calcColor(float frac, CRGB startColor, CRGB endColor, bool bounce);
-    int getLedIndex(int x, int y) const;
-    void rotateCoordinates(int &x, int &y, int angle) const;
 };
 
 #endif // LEDMANAGER_H

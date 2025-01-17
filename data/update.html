@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Firmware Update</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+        padding: 0;
+        background: #f4f4f9;
+        color: #333;
+      }
+      h1 {
+        color: #0056b3;
+      }
+      nav {
+        margin-bottom: 20px;
+        padding: 10px;
+        background: #0056b3;
+        color: white;
+      }
+      nav a {
+        margin-right: 15px;
+        text-decoration: none;
+        color: white;
+        font-weight: bold;
+      }
+      nav a:hover {
+        text-decoration: underline;
+      }
+      input[type="file"],
+      input[type="submit"] {
+        padding: 10px;
+        margin: 10px 0;
+      }
+      progress {
+        width: 100%;
+        height: 20px;
+        margin-top: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/status">Status</a>
+      <a href="/update">Update Firmware</a>
+      <a href="/updatefs">Update SPIFFS</a>
+      <a href="/reboot">Reboot</a>
+      <a href="/control">Control Panel</a>
+    </nav>
+    <h1>Firmware Update</h1>
+    <form
+      method="POST"
+      enctype="multipart/form-data"
+      action="/update"
+      id="uploadForm"
+    >
+      <input type="file" name="update" id="fileInput" />
+      <input type="submit" value="Upload Firmware" />
+    </form>
+    <progress id="progressBar" value="0" max="100"></progress>
+    <p id="statusText">Waiting for upload...</p>
+
+    <script>
+      document.getElementById("uploadForm").onsubmit = function (e) {
+        const fileInput = document.getElementById("fileInput");
+        const progressBar = document.getElementById("progressBar");
+        const statusText = document.getElementById("statusText");
+
+        if (!fileInput.files.length) {
+          alert("Please select a file first!");
+          return false;
+        }
+
+        const xhr = new XMLHttpRequest();
+        xhr.upload.onprogress = function (event) {
+          if (event.lengthComputable) {
+            const percent = Math.round((event.loaded / event.total) * 100);
+            progressBar.value = percent;
+            statusText.innerText = "Uploading... " + percent + "%";
+          }
+        };
+        xhr.onload = function () {
+          if (xhr.status === 200) {
+            statusText.innerText = "Update Successful! Rebooting...";
+          } else {
+            statusText.innerText = "Update Failed!";
+          }
+        };
+        xhr.onerror = function () {
+          statusText.innerText = "Error during upload.";
+        };
+        xhr.open("POST", "/update");
+        xhr.send(new FormData(document.getElementById("uploadForm")));
+        e.preventDefault();
+      };
+    </script>
+  </body>
+</html>
