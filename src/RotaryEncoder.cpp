@@ -5,9 +5,9 @@
 // Move the Rotary Encoder pin definitions here
 // (No longer in main.cpp)
 // -----------------------------------------------------------
-static const int ENC_A   = 4;
-static const int ENC_B   = 5;
-static const int ENC_BTN = 6;
+static const int ENC_A   = 12;
+static const int ENC_B   = 11;
+static const int ENC_BTN = 10;
 
 // We create a global AiEsp32RotaryEncoder. We'll re-init in begin().
 static AiEsp32RotaryEncoder internalEncoder(

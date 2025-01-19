@@ -36,6 +36,23 @@ public:
     void setBrightness(uint8_t brightness);
     uint8_t getBrightness() const;
 
+    // Speed is 0..100. 0 => slow, 100 => fast.
+    void setSpeed(int val);  // We'll internally map to an ms update or something
+    int  getSpeed() const;
+
+    // Param1..4 in 0..255
+    void setParam1(uint8_t p);
+    uint8_t getParam1() const;
+
+    void setParam2(uint8_t p);
+    uint8_t getParam2() const;
+
+    void setParam3(uint8_t p);
+    uint8_t getParam3() const;
+
+    void setParam4(uint8_t p);
+    uint8_t getParam4() const;
+
     // Palette
     void setPalette(int paletteIndex);
     int  getCurrentPalette() const;
@@ -98,6 +115,15 @@ private:
     int panelOrder;
     int rotationAngle1;
     int rotationAngle2;
+
+    // Speed 
+    int _speedVal; 
+
+    //Generic parameters
+    uint8_t _param1;
+    uint8_t _param2;
+    uint8_t _param3;
+    uint8_t _param4;
 
     unsigned long ledUpdateInterval;
     unsigned long lastLedUpdate;

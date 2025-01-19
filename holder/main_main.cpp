@@ -9,7 +9,7 @@
 // -------------------- Configuration --------------------
 
 // LED Configuration
-#define LED_PIN     21
+#define LED_PIN     7
 #define NUM_LEDS    512
 #define LED_TYPE    WS2812B
 #define COLOR_ORDER GRB

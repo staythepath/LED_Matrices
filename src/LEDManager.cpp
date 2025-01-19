@@ -13,6 +13,12 @@
 // Up to 8 panels of 16×16
 CRGB leds[MAX_LEDS];
 
+/**
+ * LEDManager Constructor
+ * 
+ * We keep your existing fields (brightness, spawnRate, etc.)
+ * and add new ones for "speedVal" in [0..100], plus param1..4 in [0..255].
+ */
 LEDManager::LEDManager()
     : _panelCount(3) // default
     , _numLeds(_panelCount * 16 * 16)
@@ -27,8 +33,14 @@ LEDManager::LEDManager()
     , panelOrder(0)
     , rotationAngle1(90)
     , rotationAngle2(90)
-    , ledUpdateInterval(38)
+    , ledUpdateInterval(38) // in ms
     , lastLedUpdate(0)
+    // NEW FIELDS:
+    , _speedVal(50)  // 0..100, default ~50 => moderate speed
+    , _param1(0)
+    , _param2(0)
+    , _param3(0)
+    , _param4(0)
 {
     createPalettes();
     _animationNames.push_back("Traffic");     // index=0
@@ -36,12 +48,21 @@ LEDManager::LEDManager()
     _animationNames.push_back("RainbowWave"); // index=2
 }
 
+/**
+ * begin()
+ *   - reinit the LEDs and default to animation 0.
+ */
 void LEDManager::begin() {
     reinitFastLED();
     // default to anim 0
     setAnimation(0);
 }
 
+/**
+ * reinitFastLED()
+ *   - Clears LED data, sets brightness, 
+ *     and configures your strip on pin 45.
+ */
 void LEDManager::reinitFastLED() {
     FastLED.clear(true);
     FastLED.setBrightness(_brightness);
@@ -51,20 +72,33 @@ void LEDManager::reinitFastLED() {
         _numLeds = MAX_LEDS;
     }
     FastLED.clearData();
-    FastLED.addLeds<WS2812B, 45, GRB>(leds, _numLeds).setCorrection(TypicalLEDStrip);
+    // Pin 45 for data
+    FastLED.addLeds<WS2812B, 4, GRB>(leds, _numLeds).setCorrection(TypicalLEDStrip);
     FastLED.show();
 }
 
+/**
+ * update()
+ *   - Called in loop() to let the current animation update.
+ */
 void LEDManager::update() {
     if (_currentAnimation) {
         _currentAnimation->update();
     }
 }
 
+/**
+ * show()
+ *   - Forces a FastLED.show()
+ */
 void LEDManager::show() {
     FastLED.show();
 }
 
+/**
+ * cleanupAnimation()
+ *   - Deletes the current animation object if any.
+ */
 void LEDManager::cleanupAnimation() {
     if (_currentAnimation) {
         delete _currentAnimation;
@@ -72,6 +106,10 @@ void LEDManager::cleanupAnimation() {
     }
 }
 
+/**
+ * createPalettes()
+ *   - Fills ALL_PALETTES and PALETTE_NAMES with your 11 examples.
+ */
 void LEDManager::createPalettes() {
     ALL_PALETTES = {
         // 1: blu_orange_green
@@ -113,6 +151,11 @@ void LEDManager::createPalettes() {
     };
 }
 
+/**
+ * setPanelCount()
+ *   - Changes panel count [1..8].
+ *   - Reinitializes and restarts the animation.
+ */
 void LEDManager::setPanelCount(int count) {
     if(count<1) count=1;
     if(count>8) count=8;
@@ -137,12 +180,16 @@ void LEDManager::setPanelCount(int count) {
     _currentAnimationIndex=-1;
     setAnimation( (oldIdx>=0) ? oldIdx : 0 );
 }
+
 int LEDManager::getPanelCount() const {
     return _panelCount;
 }
 
-// Identify Panels
-// Blocks 10s, draws big arrow + big digit
+/**
+ * identifyPanels()
+ *   - Clears the strip, draws an arrow+digit for each panel, 
+ *     waits 10s, then restores the old animation.
+ */
 void LEDManager::identifyPanels(){
     Serial.println("identifyPanels() invoked, blocking 10s...");
     int oldIdx = _currentAnimationIndex;
@@ -171,12 +218,10 @@ void LEDManager::identifyPanels(){
     }
 }
 
-// A bigger arrow at the top
-// Let's do 4 rows: row=0..3
-// row=0 => x=8 = tip
-// row=1 => x=7..9
-// row=2 => x=6..10
-// row=3 => x=5..11
+/**
+ * drawUpArrow()
+ *   - Renders a bigger arrow at the top rows (0..3)
+ */
 void LEDManager::drawUpArrow(int baseIndex){
     // row=0 => x=8
     int idx = baseIndex + (0*16)+8;
@@ -200,25 +245,15 @@ void LEDManager::drawUpArrow(int baseIndex){
 }
 
 /**
- * We'll define an 8×8 pattern for digits 1..8,
- * placing top-left at (4,6), so it's somewhat in the center 
- * (x=4..11, y=6..13).
- *
- * We'll store them in a big array "digits8x8[digit-1][64]"
- * 'X' = True => color pixel, '.'=False => skip
+ * drawLargeDigit()
+ *   - Places an 8×8 pattern in the panel, digit in [1..8]
  */
 void LEDManager::drawLargeDigit(int baseIndex, int digit){
-    // clamp 1..8
     if(digit<1) digit=1;
     if(digit>8) digit=8;
     static const bool digits8x8[8][64] = {
-        // 1 => a tall line at x=3 maybe
+        // digit 1
         {
-        // row=0..7
-        // We'll do a minimal shape that roughly looks like "1"
-        // 'X' => true, '.' => false
-        // We'll do 8 columns => col=0..7
-          // row0
           false,false,true,false,false,false,false,false,
           false,false,true,false,false,false,false,false,
           false,false,true,false,false,false,false,false,
@@ -228,7 +263,7 @@ void LEDManager::drawLargeDigit(int baseIndex, int digit){
           false,false,true,false,false,false,false,false,
           false,false,true,false,false,false,false,false
         },
-        // 2 => let's do a shape
+        // digit 2
         {
           true,true,true,true,false,false,false,false,
           false,false,false,true,false,false,false,false,
@@ -239,7 +274,7 @@ void LEDManager::drawLargeDigit(int baseIndex, int digit){
           true,true,true,true,false,false,false,false,
           false,false,false,false,false,false,false,false
         },
-        // 3
+        // digit 3
         {
           true,true,true,true,false,false,false,false,
           false,false,false,true,false,false,false,false,
@@ -250,7 +285,7 @@ void LEDManager::drawLargeDigit(int baseIndex, int digit){
           true,true,true,true,false,false,false,false,
           false,false,false,false,false,false,false,false
         },
-        // 4
+        // digit 4
         {
           true,false,false,true,false,false,false,false,
           true,false,false,true,false,false,false,false,
@@ -261,7 +296,7 @@ void LEDManager::drawLargeDigit(int baseIndex, int digit){
           false,false,false,true,false,false,false,false,
           false,false,false,false,false,false,false,false
         },
-        // 5
+        // digit 5
         {
           true,true,true,true,false,false,false,false,
           true,false,false,false,false,false,false,false,
@@ -272,7 +307,7 @@ void LEDManager::drawLargeDigit(int baseIndex, int digit){
           true,true,true,true,false,false,false,false,
           false,false,false,false,false,false,false,false
         },
-        // 6
+        // digit 6
         {
           false,true,true,true,false,false,false,false,
           true,false,false,false,false,false,false,false,
@@ -283,7 +318,7 @@ void LEDManager::drawLargeDigit(int baseIndex, int digit){
           false,true,true,true,false,false,false,false,
           false,false,false,false,false,false,false,false
         },
-        // 7
+        // digit 7
         {
           true,true,true,true,false,false,false,false,
           false,false,false,true,false,false,false,false,
@@ -294,7 +329,7 @@ void LEDManager::drawLargeDigit(int baseIndex, int digit){
           false,false,false,true,false,false,false,false,
           false,false,false,false,false,false,false,false
         },
-        // 8
+        // digit 8
         {
           false,true,true,true,false,false,false,false,
           true,false,false,true,false,false,false,false,
@@ -307,11 +342,7 @@ void LEDManager::drawLargeDigit(int baseIndex, int digit){
         }
     };
 
-    // pick color
     CRGB color = CHSV((digit*32) & 255, 255, 255);
-
-    // top-left corner of digit => (4,6)
-    // so it occupies x=4..11, y=6..13
     int startX=4;
     int startY=6;
     int indexDigit= digit-1;
@@ -331,6 +362,10 @@ void LEDManager::drawLargeDigit(int baseIndex, int digit){
     }
 }
 
+/**
+ * setAnimation()
+ *   - Switches animations: Traffic, Blink, or RainbowWave
+ */
 void LEDManager::setAnimation(int animIndex) {
     if (animIndex == _currentAnimationIndex) return;
     cleanupAnimation();
@@ -384,10 +419,15 @@ String LEDManager::getAnimationName(int animIndex) const {
     return "Unknown";
 }
 
+/**
+ * setBrightness() / getBrightness()
+ *   - 0..255
+ */
 void LEDManager::setBrightness(uint8_t b){
     _brightness=b;
     FastLED.setBrightness(_brightness);
 
+    // If an animation is running, pass it along
     if(_currentAnimationIndex==0 && _currentAnimation){
         auto t=(TrafficAnimation*)_currentAnimation;
         t->setBrightness(_brightness);
@@ -403,6 +443,10 @@ uint8_t LEDManager::getBrightness() const {
     return _brightness;
 }
 
+/**
+ * setPalette(), getPaletteNameAt(), etc.
+ *   - picks from your 11 sample palettes
+ */
 void LEDManager::setPalette(int idx){
     if(idx>=0 && idx<(int)PALETTE_NAMES.size()){
         currentPalette= idx;
@@ -415,7 +459,7 @@ void LEDManager::setPalette(int idx){
             auto bA=(BlinkAnimation*)_currentAnimation;
             bA->setPalette(&ALL_PALETTES[currentPalette]);
         }
-        // etc.
+        // etc. if needed
     }
 }
 int LEDManager::getCurrentPalette() const {
@@ -438,6 +482,10 @@ const std::vector<CRGB>& LEDManager::getCurrentPaletteColors() const {
     return ALL_PALETTES[currentPalette];
 }
 
+/**
+ * setSpawnRate() / getSpawnRate()
+ *   - 0..(some max?)
+ */
 void LEDManager::setSpawnRate(float r){
     spawnRate=r;
     if(_currentAnimationIndex==0 && _currentAnimation){
@@ -449,6 +497,10 @@ float LEDManager::getSpawnRate() const {
     return spawnRate;
 }
 
+/**
+ * setMaxFlakes() / getMaxFlakes()
+ *   - 0..500 typically
+ */
 void LEDManager::setMaxFlakes(int m){
     maxFlakes=m;
     if(_currentAnimationIndex==0 && _currentAnimation){
@@ -460,6 +512,10 @@ int LEDManager::getMaxFlakes() const {
     return maxFlakes;
 }
 
+/**
+ * setTailLength() / getTailLength()
+ *   - 0..30
+ */
 void LEDManager::setTailLength(int l){
     tailLength=l;
     if(_currentAnimationIndex==0 && _currentAnimation){
@@ -471,6 +527,10 @@ int LEDManager::getTailLength() const {
     return tailLength;
 }
 
+/**
+ * setFadeAmount() / getFadeAmount()
+ *   - 0..255
+ */
 void LEDManager::setFadeAmount(uint8_t a){
     fadeAmount=a;
     if(_currentAnimationIndex==0 && _currentAnimation){
@@ -482,6 +542,10 @@ uint8_t LEDManager::getFadeAmount() const {
     return fadeAmount;
 }
 
+/**
+ * swapPanels(), setPanelOrder(), rotatePanel(), getRotation()
+ *   - Additional panel manipulation
+ */
 void LEDManager::swapPanels(){
     panelOrder=1-panelOrder;
     Serial.println("Panels swapped successfully.");
@@ -542,6 +606,12 @@ int LEDManager::getRotation(String panel) const {
     return -1;
 }
 
+/**
+ * setUpdateSpeed() / getUpdateSpeed()
+ *   - The old approach: 10..60000 ms
+ *   - We'll keep it for backward compatibility, but we can still call it internally
+ *     from setSpeed() if you want.
+ */
 void LEDManager::setUpdateSpeed(unsigned long speed){
     if(speed>=10 && speed<=60000){
         ledUpdateInterval=speed;
@@ -564,4 +634,66 @@ void LEDManager::setUpdateSpeed(unsigned long speed){
 }
 unsigned long LEDManager::getUpdateSpeed() const {
     return ledUpdateInterval;
+}
+
+/**
+ * NEW: setSpeed(int val) / getSpeed()
+ *   - Speed = 0..100 => internally map to ledUpdateInterval from ~3000 ms (speed=0) down to 10 ms (speed=100).
+ *   - If you want a narrower range, adjust the formula.
+ */
+void LEDManager::setSpeed(int val){
+    if(val<0) val=0;
+    if(val>100) val=100;
+    _speedVal= val;
+
+    // We'll map 0 => 3000 ms, 100 => 10 ms
+    //   range = 2990
+    //   ledUpdateInterval = 3000 - (val * 2990/100)
+    int range = 2990;
+    unsigned long mapped = 3000 - ((range * val) / 100);
+    if(mapped<10) mapped=10; // clamp
+
+    setUpdateSpeed(mapped); // Reuse your existing logic
+    // Now your animations get the new interval
+    // done
+}
+int LEDManager::getSpeed() const {
+    return _speedVal;
+}
+
+/**
+ * NEW: param1..param4 in [0..255]
+ *   - Generic parameters for your animations or anything else
+ */
+void LEDManager::setParam1(uint8_t p){
+    _param1= p;
+    Serial.printf("Param1 set to %u\n", p);
+    // If your animation needs it, pass it there
+}
+uint8_t LEDManager::getParam1() const {
+    return _param1;
+}
+
+void LEDManager::setParam2(uint8_t p){
+    _param2= p;
+    Serial.printf("Param2 set to %u\n", p);
+}
+uint8_t LEDManager::getParam2() const {
+    return _param2;
+}
+
+void LEDManager::setParam3(uint8_t p){
+    _param3= p;
+    Serial.printf("Param3 set to %u\n", p);
+}
+uint8_t LEDManager::getParam3() const {
+    return _param3;
+}
+
+void LEDManager::setParam4(uint8_t p){
+    _param4= p;
+    Serial.printf("Param4 set to %u\n", p);
+}
+uint8_t LEDManager::getParam4() const {
+    return _param4;
 }

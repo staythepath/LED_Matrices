@@ -5,12 +5,15 @@
 #include <U8g2lib.h>
 
 /**
- * A drop-in replacement for the old LiquidCrystal-based LCDManager,
- * but now using U8G2 with SSD1309.
+ * A drop-in replacement for the old "LiquidCrystal" manager,
+ * now using U8G2 with **I2C** for an SSD1309 or similar 128×64 OLED.
+ *
+ * The main difference from your SPI approach is that we:
+ *   - use "U8G2_SSD1309_128X64_NONAME0_F_HW_I2C"
+ *   - call Wire.begin(SDA,SCL) in begin()
  */
 class LCDManager {
 private:
-    // We’ll keep these pins purely for compatibility/logging
     int _rs;  
     int _e;   
     int _d4;  
@@ -19,24 +22,26 @@ private:
     int _d7;
 
 public:
-    // Same constructor signature as the old one, so main.cpp won't break
+    // Same constructor signature so main.cpp won't break
     LCDManager(int rs, int e, int d4, int d5, int d6, int d7, int cols = 32, int rows = 2);
 
-    // Initialize the OLED (instead of an LCD)
     void begin();
 
-    // Replicate the same "updateDisplay" logic: date/time/temperature/humidity
+    // For the normal date/time/temperature/humidity display
     void updateDisplay(int month, int mday, int wday, int hour, int minute, int temp_f, int hum);
+
+    // If the menu needs direct access to the U8G2, we provide this:
     U8G2& getU8g2() {
-        return _u8g2; 
+        return _u8g2;
     }
 
 private:
-    // The U8G2 object for SSD1309, 128×64, SW SPI
-    // (You could also do hardware SPI or I2C if you prefer)
-    U8G2_SSD1309_128X64_NONAME0_F_4W_SW_SPI _u8g2;
+    // We'll do hardware I2C for SSD1309 128×64
+    // or if it's an SSD1306, you can rename the constructor:
+    // e.g. U8G2_SSD1306_128X64_NONAME_F_HW_I2C
+    U8G2_SSD1309_128X64_NONAME0_F_HW_I2C _u8g2;
 
-    // Helper functions to abbreviate days and format time
+    // Helper functions
     String _getDayAbbrev(int wday);
     String _formatTime(int hour, int minute);
 };
