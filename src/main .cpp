@@ -61,6 +61,7 @@ void setup() {
 }
 
 void loop() {
+Serial.println("Looping...");
     telnetManager.handle();
 
     // 1) Read sensor
@@ -69,6 +70,8 @@ void loop() {
         Serial.println("Failed to read from DHT sensor!");
         temp_c = 0;
         hum = 0;
+    } else {
+        Serial.printf("Temp: %.1f C, Hum: %.1f%%\n", temp_c, hum);
     }
     float temp_f = (temp_c * 9 / 5) + 32;
 

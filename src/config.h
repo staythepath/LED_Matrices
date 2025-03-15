@@ -2,14 +2,14 @@
 #define CONFIG_H
 
 // -------------------- LED Configuration --------------------
-#define LED_PIN     4
-#define NUM_LEDS    768
+#define LED_PIN     8
+#define NUM_LEDS    256
 #define LED_TYPE    WS2812B
 #define COLOR_ORDER GRB
 #define DEFAULT_BRIGHTNESS 32 // Initial brightness (0-255)
 
 // -------------------- DHT Sensor Configuration --------------------
-#define DHTPIN      3
+#define DHTPIN      12
 #define DHTTYPE     DHT11
 
 // -------------------- LCD Configuration --------------------

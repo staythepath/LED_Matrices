@@ -8,7 +8,7 @@
 // Replace these with your actual wiring if needed
 // or rely on hardware I2C defaults if your board does so automatically.
 // -----------------------------------------------------------------
-static const uint8_t OLED_I2C_SDA = 17;
+static const uint8_t OLED_I2C_SDA = 18;
 static const uint8_t OLED_I2C_SCL = 16;
 
 // Typically the SSD1309 or SSD1306 I2C address is 0x3C
@@ -50,7 +50,6 @@ void LCDManager::begin() {
 
     // We can specify the i2c address if needed:
     _u8g2.setI2CAddress(OLED_I2C_ADDR << 1); // shift by 1 if required
-
     // Now init the display
     _u8g2.begin();
 
