@@ -98,6 +98,7 @@ private:
     int panelOrder;
     int rotationAngle1;
     int rotationAngle2;
+    int rotationAngle3;
 
     unsigned long ledUpdateInterval;
     unsigned long lastLedUpdate;

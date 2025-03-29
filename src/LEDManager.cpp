@@ -4,12 +4,15 @@
 #include <FastLED.h>
 #include <typeinfo>
 
-// Animations
-#include "animations/BaseAnimation.h"
+// Include Animation header files
 #include "animations/TrafficAnimation.h"
 #include "animations/BlinkAnimation.h"
 #include "animations/RainbowWaveAnimation.h"
 #include "animations/FireworkAnimation.h"
+#include "animations/GameOfLifeAnimation.h"
+
+// Animations
+#include "animations/BaseAnimation.h"
 
 // Up to 8 panels of 16×16
 CRGB leds[MAX_LEDS];
@@ -28,6 +31,7 @@ LEDManager::LEDManager()
     , panelOrder(1)  // Start with right panel first instead of left
     , rotationAngle1(90)
     , rotationAngle2(90)
+    , rotationAngle3(90)
     , ledUpdateInterval(38)
     , lastLedUpdate(0)
 {
@@ -36,6 +40,7 @@ LEDManager::LEDManager()
     _animationNames.push_back("Blink");       // index=1
     _animationNames.push_back("RainbowWave"); // index=2
     _animationNames.push_back("Firework");    // index=3
+    _animationNames.push_back("GameOfLife");  // index=4
 }
 
 void LEDManager::begin() {
@@ -139,12 +144,11 @@ void LEDManager::setPanelCount(int count) {
     _currentAnimationIndex=-1;
     setAnimation( (oldIdx>=0) ? oldIdx : 0 );
 }
+
 int LEDManager::getPanelCount() const {
     return _panelCount;
 }
 
-// Identify Panels
-// Blocks 10s, draws big arrow + big digit
 void LEDManager::identifyPanels(){
     Serial.println("identifyPanels() invoked, blocking 10s...");
     int oldIdx = _currentAnimationIndex;
@@ -173,12 +177,6 @@ void LEDManager::identifyPanels(){
     }
 }
 
-// A bigger arrow at the top
-// Let's do 4 rows: row=0..3
-// row=0 => x=8 = tip
-// row=1 => x=7..9
-// row=2 => x=6..10
-// row=3 => x=5..11
 void LEDManager::drawUpArrow(int baseIndex){
     // row=0 => x=8
     int idx = baseIndex + (0*16)+8;
@@ -201,14 +199,6 @@ void LEDManager::drawUpArrow(int baseIndex){
     }
 }
 
-/**
- * We'll define an 8×8 pattern for digits 1..8,
- * placing top-left at (4,6), so it's somewhat in the center 
- * (x=4..11, y=6..13).
- *
- * We'll store them in a big array "digits8x8[digit-1][64]"
- * 'X' = True => color pixel, '.'=False => skip
- */
 void LEDManager::drawLargeDigit(int baseIndex, int digit){
     // clamp 1..8
     if(digit<1) digit=1;
@@ -334,76 +324,107 @@ void LEDManager::drawLargeDigit(int baseIndex, int digit){
 }
 
 void LEDManager::setAnimation(int animIndex) {
-    // Clean up old animation
-    cleanupAnimation();
-
-    // Bounds check
-    if(animIndex < 0 || animIndex >= (int)_animationNames.size()) {
-        Serial.println("Invalid animation index");
+    if (animIndex == _currentAnimationIndex) {
         return;
     }
 
-    _currentAnimationIndex = animIndex;
-    
-    // Create new animation
-    if(animIndex == 0) {
-        TrafficAnimation* anim = new TrafficAnimation(_numLeds, _brightness, _panelCount);
-        anim->setAllPalettes(&ALL_PALETTES);
-        anim->setCurrentPalette(currentPalette);
-        anim->setSpawnRate(spawnRate);
-        anim->setMaxCars(maxFlakes);
-        anim->setTailLength(tailLength);
-        anim->setFadeAmount(fadeAmount);
-        anim->setPanelOrder(panelOrder);
-        anim->setRotationAngle1(rotationAngle1);
-        anim->setRotationAngle2(rotationAngle2);
-        anim->setRotationAngle3(rotationAngle1); // 3rd panel same as 1st
-        anim->setUpdateInterval(ledUpdateInterval);
-        _currentAnimation = anim;
+    Serial.printf("Setting animation to %d (%s)\n", animIndex, getAnimationName(animIndex).c_str());
+
+    // Cleanup existing animation first
+    cleanupAnimation();
+    _currentAnimationIndex = -1; // Reset index
+
+    // Invalid animation index
+    if (animIndex < 0 || animIndex >= (int)_animationNames.size()) {
+        return;
     }
-    else if(animIndex == 1) {
-        BlinkAnimation* anim = new BlinkAnimation(_numLeds, _brightness);
-        _currentAnimation = anim;
-    }
-    else if(animIndex == 2) {
-        RainbowWaveAnimation* anim = new RainbowWaveAnimation(_numLeds, _brightness, _panelCount);
-        anim->setPanelOrder(panelOrder);
-        anim->setRotationAngle1(rotationAngle1);
-        anim->setRotationAngle2(rotationAngle2);
-        anim->setRotationAngle3(rotationAngle1); // 3rd panel same as 1st
-        
-        // Always use a fast update interval for smooth animation
-        anim->setUpdateInterval(8);
-        
-        // For Rainbow Wave, we want to limit the minimum effective speed to 250ms
-        // while keeping the slider range from 10-1500ms
-        // Map from range [10, 1500] to [250, 1500] for effective speed calculation
-        float effectiveSpeed = 250.0f + (ledUpdateInterval - 10.0f) * (1250.0f / 1490.0f);
-        
-        // Now map this effective speed to the multiplier range [3.0, 0.5]
-        float speedValue = constrain(effectiveSpeed, 250, 1500);
-        float speedMultiplier = 3.0f - ((speedValue - 250) / 1250.0f * 2.5f);
-        anim->setSpeedMultiplier(speedMultiplier);
-        
-        _currentAnimation = anim;
-    }
-    else if(animIndex == 3) {
-        FireworkAnimation* anim = new FireworkAnimation(_numLeds, _brightness, _panelCount);
-        anim->setPanelOrder(panelOrder);
-        anim->setRotationAngle1(0); // Fixed rotation for fireworks
-        anim->setRotationAngle2(0); // Fixed rotation for fireworks
-        anim->setRotationAngle3(0); // Fixed rotation for fireworks
-        anim->setUpdateInterval(15); // Faster update for fireworks
-        anim->setMaxFireworks(10);
-        anim->setParticleCount(40);
-        anim->setGravity(0.15f);
-        anim->setLaunchProbability(0.15f);
-        _currentAnimation = anim;
+
+    switch (animIndex) {
+        case 0: {
+            // Traffic Animation
+            TrafficAnimation* anim = new TrafficAnimation(_numLeds, _brightness, _panelCount);
+            anim->setRotationAngle1(rotationAngle1);
+            anim->setRotationAngle2(rotationAngle2);
+            anim->setRotationAngle3(rotationAngle3);
+            anim->setPanelOrder(panelOrder);
+            
+            anim->setUpdateInterval(ledUpdateInterval);
+            
+            anim->setFadeAmount(fadeAmount);
+            anim->setSpawnRate(spawnRate);
+            anim->setMaxCars(maxFlakes);
+            anim->setTailLength(tailLength);
+            
+            // Handle palette
+            anim->setAllPalettes(&ALL_PALETTES);
+            anim->setCurrentPalette(currentPalette);
+            
+            _currentAnimation = anim;
+            break;
+        }
+        case 1: {
+            // Blink Animation
+            BlinkAnimation* anim = new BlinkAnimation(_numLeds, _brightness, _panelCount);
+            anim->setInterval(ledUpdateInterval);
+            anim->setPalette(&ALL_PALETTES[currentPalette]);
+            _currentAnimation = anim;
+            break;
+        }
+        case 2: {
+            // Rainbow Wave Animation
+            float effectiveSpeed = 250.0f + (ledUpdateInterval - 10.0f) * (1250.0f / 1490.0f);
+            float speedValue = constrain(effectiveSpeed, 250, 1500);
+            float speedMultiplier = 3.0f - ((speedValue - 250) / 1250.0f * 2.5f);
+            
+            RainbowWaveAnimation* anim = new RainbowWaveAnimation(_numLeds, _brightness, _panelCount);
+            anim->setRotationAngle1(rotationAngle1);
+            anim->setRotationAngle2(rotationAngle2);
+            anim->setRotationAngle3(rotationAngle3);
+            anim->setPanelOrder(panelOrder);
+            
+            anim->setUpdateInterval(8);
+            anim->setSpeedMultiplier(speedMultiplier);
+            
+            _currentAnimation = anim;
+            break;
+        }
+        case 3: {
+            // Firework Animation
+            FireworkAnimation* anim = new FireworkAnimation(_numLeds, _brightness, _panelCount);
+            anim->setRotationAngle1(rotationAngle1);
+            anim->setRotationAngle2(rotationAngle2);
+            anim->setRotationAngle3(rotationAngle3);
+            anim->setPanelOrder(panelOrder);
+            
+            anim->setUpdateInterval(15); // Faster update for fireworks
+            anim->setMaxFireworks(10);
+            anim->setParticleCount(40);
+            anim->setGravity(0.15f);
+            anim->setLaunchProbability(0.15f);
+            _currentAnimation = anim;
+            break;
+        }
+        case 4: {
+            // Game of Life Animation
+            GameOfLifeAnimation* anim = new GameOfLifeAnimation(_numLeds, _brightness, _panelCount);
+            anim->setRotationAngle1(rotationAngle1);
+            anim->setRotationAngle2(rotationAngle2);
+            anim->setRotationAngle3(rotationAngle3);
+            anim->setPanelOrder(panelOrder);
+            
+            // Set speed based on current update interval
+            anim->setSpeed(map(ledUpdateInterval, 10, 1500, 0, 255));
+            
+            _currentAnimation = anim;
+            break;
+        }
     }
 
     if(_currentAnimation) {
         _currentAnimation->begin();
     }
+    
+    _currentAnimationIndex = animIndex;
 }
 
 int LEDManager::getAnimation() const {
@@ -423,17 +444,11 @@ void LEDManager::setBrightness(uint8_t b){
     _brightness=b;
     FastLED.setBrightness(_brightness);
 
-    if(_currentAnimationIndex==0 && _currentAnimation){
-        auto t=(TrafficAnimation*)_currentAnimation;
-        t->setBrightness(_brightness);
-    } else if(_currentAnimationIndex==1 && _currentAnimation){
-        auto bA=(BlinkAnimation*)_currentAnimation;
-        bA->setBrightness(_brightness);
-    } else if(_currentAnimationIndex==2 && _currentAnimation){
-        auto wA=(RainbowWaveAnimation*)_currentAnimation;
-        wA->setBrightness(_brightness);
+    if(_currentAnimation) {
+        _currentAnimation->setBrightness(_brightness);
     }
 }
+
 uint8_t LEDManager::getBrightness() const {
     return _brightness;
 }
@@ -611,6 +626,10 @@ void LEDManager::setUpdateSpeed(unsigned long speed){
         else if(_currentAnimationIndex==3 && _currentAnimation){
             auto fA=(FireworkAnimation*)_currentAnimation;
             fA->setUpdateInterval(speed);
+        }
+        else if(_currentAnimationIndex==4 && _currentAnimation){
+            auto gA=(GameOfLifeAnimation*)_currentAnimation;
+            gA->setSpeed(map(speed, 10, 1500, 0, 255));
         }
     } else {
         Serial.println("Invalid speed. Must be 10..60000");
