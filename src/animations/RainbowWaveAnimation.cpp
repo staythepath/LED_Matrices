@@ -11,7 +11,7 @@ RainbowWaveAnimation::RainbowWaveAnimation(uint16_t numLeds, uint8_t brightness,
     , _panelCount(panelCount)
     , _width(panelCount * 16)
     , _height(16)
-    , _intervalMs(50)
+    , _intervalMs(8)  // Fast base speed
     , _lastUpdate(0)
     , _phase(0)
     , _panelOrder(1)
@@ -31,7 +31,7 @@ void RainbowWaveAnimation::update() {
     unsigned long now = millis();
     if ((now - _lastUpdate) >= _intervalMs) {
         _lastUpdate = now;
-        _phase++;  // increment hue offset
+        _phase += 8;  // Fixed increment - 8 is a good balance for smooth motion
         fillRainbowWave();
         FastLED.show();
     }
@@ -49,7 +49,7 @@ void RainbowWaveAnimation::fillRainbowWave() {
 
             // get index for (x,y) 
             int index = getLedIndex(x, y);
-            if (index >= 0 && index < (int)_numLeds) {
+            if (index >= 0 && index < _numLeds) {
                 leds[index] = colorRGB;
             }
         }

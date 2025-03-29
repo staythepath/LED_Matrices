@@ -613,6 +613,32 @@ void WebServerManager::setupRoutes() {
         }
     });
 
+    // 18.5) rotatePanel3 => param "val" in {0,90,180,270}
+    _server.on("/api/rotatePanel3", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        
+        if(!request->hasParam("val")){
+            releaseLEDManager();
+            request->send(400,"text/plain","Missing val param");
+            return;
+        }
+        int angle=request->getParam("val")->value().toInt();
+        if(angle==0||angle==90||angle==180||angle==270){
+            ledManager.rotatePanel("PANEL3", angle);
+            String msg="Rotation angle for PANEL3 set to "+String(angle);
+            
+            releaseLEDManager();
+            request->send(200,"text/plain", msg);
+            Serial.println(msg);
+        } else {
+            releaseLEDManager();
+            request->send(400,"text/plain","Valid angles: 0,90,180,270");
+        }
+    });
+
     // 19) setSpeed => param "val" in milliseconds
     _server.on("/api/setSpeed", HTTP_GET, [](AsyncWebServerRequest *request){
         if (!acquireLEDManager(500)) {

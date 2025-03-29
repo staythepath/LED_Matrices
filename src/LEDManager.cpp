@@ -9,6 +9,7 @@
 #include "animations/TrafficAnimation.h"
 #include "animations/BlinkAnimation.h"
 #include "animations/RainbowWaveAnimation.h"
+#include "animations/FireworkAnimation.h"
 
 // Up to 8 panels of 16×16
 CRGB leds[MAX_LEDS];
@@ -34,6 +35,7 @@ LEDManager::LEDManager()
     _animationNames.push_back("Traffic");     // index=0
     _animationNames.push_back("Blink");       // index=1
     _animationNames.push_back("RainbowWave"); // index=2
+    _animationNames.push_back("Firework");    // index=3
 }
 
 void LEDManager::begin() {
@@ -332,42 +334,62 @@ void LEDManager::drawLargeDigit(int baseIndex, int digit){
 }
 
 void LEDManager::setAnimation(int animIndex) {
-    if (animIndex == _currentAnimationIndex) return;
+    // Clean up old animation
     cleanupAnimation();
 
-    if (animIndex < 0 || animIndex >= (int)getAnimationCount()) {
-        Serial.println("Invalid animation index.");
+    // Bounds check
+    if(animIndex < 0 || animIndex >= (int)_animationNames.size()) {
+        Serial.println("Invalid animation index");
         return;
     }
-    _currentAnimationIndex = animIndex;
 
-    if (animIndex == 0) {
-        auto traffic = new TrafficAnimation(_numLeds, _brightness, _panelCount);
-        traffic->setAllPalettes(&ALL_PALETTES);
-        traffic->setCurrentPalette(currentPalette);
-        traffic->setSpawnRate(spawnRate);
-        traffic->setMaxCars(maxFlakes);
-        traffic->setTailLength(tailLength);
-        traffic->setFadeAmount(fadeAmount);
-        traffic->setPanelOrder(panelOrder);
-        traffic->setRotationAngle1(rotationAngle1);
-        traffic->setRotationAngle2(rotationAngle2);
-        _currentAnimation = traffic;
-        _currentAnimation->begin();
-        Serial.println("Traffic animation selected.");
-    } else if (animIndex==1){
-        auto blink= new BlinkAnimation(_numLeds, _brightness, _panelCount);
-        _currentAnimation=blink;
-        _currentAnimation->begin();
-        Serial.println("Blink animation selected.");
-    } else if(animIndex==2){
-        auto wave= new RainbowWaveAnimation(_numLeds, _brightness, _panelCount);
-        _currentAnimation= wave;
-        _currentAnimation->begin();
-        Serial.println("RainbowWave animation selected.");
+    _currentAnimationIndex = animIndex;
+    
+    // Create new animation
+    if(animIndex == 0) {
+        TrafficAnimation* anim = new TrafficAnimation(_numLeds, _brightness, _panelCount);
+        anim->setAllPalettes(&ALL_PALETTES);
+        anim->setCurrentPalette(currentPalette);
+        anim->setSpawnRate(spawnRate);
+        anim->setMaxCars(maxFlakes);
+        anim->setTailLength(tailLength);
+        anim->setFadeAmount(fadeAmount);
+        anim->setPanelOrder(panelOrder);
+        anim->setRotationAngle1(rotationAngle1);
+        anim->setRotationAngle2(rotationAngle2);
+        anim->setRotationAngle3(rotationAngle1); // 3rd panel same as 1st
+        anim->setUpdateInterval(ledUpdateInterval);
+        _currentAnimation = anim;
     }
-    else {
-        Serial.println("Unknown anim index.");
+    else if(animIndex == 1) {
+        BlinkAnimation* anim = new BlinkAnimation(_numLeds, _brightness);
+        _currentAnimation = anim;
+    }
+    else if(animIndex == 2) {
+        RainbowWaveAnimation* anim = new RainbowWaveAnimation(_numLeds, _brightness, _panelCount);
+        anim->setPanelOrder(panelOrder);
+        anim->setRotationAngle1(rotationAngle1);
+        anim->setRotationAngle2(rotationAngle2);
+        anim->setRotationAngle3(rotationAngle1); // 3rd panel same as 1st
+        anim->setUpdateInterval(ledUpdateInterval);
+        _currentAnimation = anim;
+    }
+    else if(animIndex == 3) {
+        FireworkAnimation* anim = new FireworkAnimation(_numLeds, _brightness, _panelCount);
+        anim->setPanelOrder(panelOrder);
+        anim->setRotationAngle1(0); // Fixed rotation for fireworks
+        anim->setRotationAngle2(0); // Fixed rotation for fireworks
+        anim->setRotationAngle3(0); // Fixed rotation for fireworks
+        anim->setUpdateInterval(15); // Faster update for fireworks
+        anim->setMaxFireworks(10);
+        anim->setParticleCount(40);
+        anim->setGravity(0.15f);
+        anim->setLaunchProbability(0.15f);
+        _currentAnimation = anim;
+    }
+
+    if(_currentAnimation) {
+        _currentAnimation->begin();
     }
 }
 
