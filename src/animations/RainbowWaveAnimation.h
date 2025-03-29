@@ -23,6 +23,7 @@ public:
 
     void setBrightness(uint8_t b) override;
     void setUpdateInterval(unsigned long intervalMs);
+    void setSpeedMultiplier(float speedMultiplier);
 
     // Dynamic panel geometry
     void setPanelOrder(int order);
@@ -43,6 +44,7 @@ private:
 
     // Phase offset in hue
     uint8_t       _phase;
+    float         _speedMultiplier;  // Controls how fast colors change (1.0 = normal)
 
     // Panel geometry
     int _panelOrder; 

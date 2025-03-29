@@ -371,7 +371,20 @@ void LEDManager::setAnimation(int animIndex) {
         anim->setRotationAngle1(rotationAngle1);
         anim->setRotationAngle2(rotationAngle2);
         anim->setRotationAngle3(rotationAngle1); // 3rd panel same as 1st
-        anim->setUpdateInterval(ledUpdateInterval);
+        
+        // Always use a fast update interval for smooth animation
+        anim->setUpdateInterval(8);
+        
+        // For Rainbow Wave, we want to limit the minimum effective speed to 250ms
+        // while keeping the slider range from 10-1500ms
+        // Map from range [10, 1500] to [250, 1500] for effective speed calculation
+        float effectiveSpeed = 250.0f + (ledUpdateInterval - 10.0f) * (1250.0f / 1490.0f);
+        
+        // Now map this effective speed to the multiplier range [3.0, 0.5]
+        float speedValue = constrain(effectiveSpeed, 250, 1500);
+        float speedMultiplier = 3.0f - ((speedValue - 250) / 1250.0f * 2.5f);
+        anim->setSpeedMultiplier(speedMultiplier);
+        
         _currentAnimation = anim;
     }
     else if(animIndex == 3) {
@@ -578,7 +591,26 @@ void LEDManager::setUpdateSpeed(unsigned long speed){
         }
         else if(_currentAnimationIndex==2 && _currentAnimation){
             auto wA=(RainbowWaveAnimation*)_currentAnimation;
-            wA->setUpdateInterval(speed);
+            
+            // For Rainbow Wave, we want to limit the minimum effective speed to 250ms
+            // while keeping the slider range from 10-1500ms
+            // Map from range [10, 1500] to [250, 1500] for effective speed calculation
+            float effectiveSpeed = 250.0f + (speed - 10.0f) * (1250.0f / 1490.0f);
+            
+            // Now map this effective speed to the multiplier range [3.0, 0.5]
+            float speedValue = constrain(effectiveSpeed, 250, 1500);
+            float speedMultiplier = 3.0f - ((speedValue - 250) / 1250.0f * 2.5f);
+            
+            // Keep the update interval constant for smooth animation
+            wA->setUpdateInterval(8);
+            wA->setSpeedMultiplier(speedMultiplier);
+            
+            Serial.printf("RainbowWave effective speed: %.0fms, multiplier: %.2f\n", 
+                          effectiveSpeed, speedMultiplier);
+        }
+        else if(_currentAnimationIndex==3 && _currentAnimation){
+            auto fA=(FireworkAnimation*)_currentAnimation;
+            fA->setUpdateInterval(speed);
         }
     } else {
         Serial.println("Invalid speed. Must be 10..60000");

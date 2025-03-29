@@ -70,27 +70,41 @@ window.addEventListener("load", () => {
       .then(r => r.json())
       .then(data => {
         log("Got animations: " + JSON.stringify(data));
-        const sel = document.getElementById("selAnimation");
-        if (sel) {
-          // Fill dropdown with animation options
-          sel.innerHTML = "";
-          data.animations.forEach((name, i) => {
-            const opt = document.createElement("option");
-            opt.value = i;
-            opt.text = name;
-            sel.appendChild(opt);
-          });
-
-          // Set current selection
-          sel.value = data.current;
-
-          // Add change handler
-          sel.addEventListener("change", () => {
-            const val = sel.options[sel.selectedIndex].value;
-            apiQueue.add(`/api/setAnimation?val=${val}`, result => {
-              log("Animation set to: " + result);
+        try {
+          const sel = document.getElementById("selAnimation");
+          if (sel) {
+            // Fill dropdown with animation options
+            sel.innerHTML = "";
+            
+            // Check if data.animations exists
+            if (!data.animations) {
+              log("ERROR: No animations array in response");
+              return;
+            }
+            
+            log("Adding " + data.animations.length + " animation options...");
+            data.animations.forEach((name, i) => {
+              const opt = document.createElement("option");
+              opt.value = i;
+              opt.text = name;
+              sel.appendChild(opt);
+              log("Added animation: " + name);
             });
-          });
+
+            // Set current selection
+            log("Setting selected animation to: " + data.current);
+            sel.value = data.current;
+
+            // Add change handler
+            sel.addEventListener("change", () => {
+              const val = sel.options[sel.selectedIndex].value;
+              apiQueue.add(`/api/setAnimation?val=${val}`, result => {
+                log("Animation set to: " + result);
+              });
+            });
+          }
+        } catch (err) {
+          log("Error populating animations: " + err.message);
         }
 
         // After animations load, get palettes
@@ -101,27 +115,41 @@ window.addEventListener("load", () => {
         if (data) {
           log("Got palettes: " + JSON.stringify(data));
           
-          const sel = document.getElementById("paletteSelect");
-          if (sel) {
-            // Fill dropdown
-            sel.innerHTML = "";
-            data.palettes.forEach((name, i) => {
-              const opt = document.createElement("option");
-              opt.value = i;
-              opt.text = name;
-              sel.appendChild(opt);
-            });
-
-            // Set current
-            sel.value = data.current;
-
-            // Add change handler
-            sel.addEventListener("change", () => {
-              const val = sel.options[sel.selectedIndex].value;
-              apiQueue.add(`/api/setPalette?val=${val}`, result => {
-                log("Palette set to: " + result);
+          try {
+            const sel = document.getElementById("paletteSelect");
+            if (sel) {
+              // Fill dropdown
+              sel.innerHTML = "";
+              
+              // Check if data.palettes exists
+              if (!data.palettes) {
+                log("ERROR: No palettes array in response");
+                return;
+              }
+              
+              log("Adding " + data.palettes.length + " palette options...");
+              data.palettes.forEach((name, i) => {
+                const opt = document.createElement("option");
+                opt.value = i;
+                opt.text = name;
+                sel.appendChild(opt);
+                log("Added palette: " + name);
               });
-            });
+
+              // Set current
+              log("Setting selected palette to: " + data.current);
+              sel.value = data.current;
+
+              // Add change handler
+              sel.addEventListener("change", () => {
+                const val = sel.options[sel.selectedIndex].value;
+                apiQueue.add(`/api/setPalette?val=${val}`, result => {
+                  log("Palette set to: " + result);
+                });
+              });
+            }
+          } catch (err) {
+            log("Error populating palettes: " + err.message);
           }
         }
         
@@ -164,9 +192,9 @@ window.addEventListener("load", () => {
           log(`MaxFlakes: ${maxFlakes}`);
           log(`Speed: ${speed}`);
           log(`Panel Count: ${panelCount}`);
-          log(`Panel 1 Rotation: ${rotation1}°`);
-          log(`Panel 2 Rotation: ${rotation2}°`);
-          log(`Panel 3 Rotation: ${rotation3}°`);
+          log(`Panel 1 Rotation: ${rotation1}┬░`);
+          log(`Panel 2 Rotation: ${rotation2}┬░`);
+          log(`Panel 3 Rotation: ${rotation3}┬░`);
           log(`Panel Order: ${panelOrder}`);
 
           // Set UI values
@@ -428,7 +456,7 @@ function setupPanelRotationControls() {
     btnRotatePanel1.addEventListener("click", () => {
       const angle = document.getElementById("rotatePanel1").value;
       apiQueue.add(`/api/rotatePanel1?val=${angle}`, result => {
-        log(`Panel 1 rotation set to: ${angle}° - ${result}`);
+        log(`Panel 1 rotation set to: ${angle}┬░ - ${result}`);
       });
     });
   }
@@ -439,7 +467,7 @@ function setupPanelRotationControls() {
     btnRotatePanel2.addEventListener("click", () => {
       const angle = document.getElementById("rotatePanel2").value;
       apiQueue.add(`/api/rotatePanel2?val=${angle}`, result => {
-        log(`Panel 2 rotation set to: ${angle}° - ${result}`);
+        log(`Panel 2 rotation set to: ${angle}┬░ - ${result}`);
       });
     });
   }
@@ -450,7 +478,7 @@ function setupPanelRotationControls() {
     btnRotatePanel3.addEventListener("click", () => {
       const angle = document.getElementById("rotatePanel3").value;
       apiQueue.add(`/api/rotatePanel3?val=${angle}`, result => {
-        log(`Panel 3 rotation set to: ${angle}° - ${result}`);
+        log(`Panel 3 rotation set to: ${angle}┬░ - ${result}`);
       });
     });
   }

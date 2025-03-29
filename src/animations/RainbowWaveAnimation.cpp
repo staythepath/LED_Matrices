@@ -11,9 +11,10 @@ RainbowWaveAnimation::RainbowWaveAnimation(uint16_t numLeds, uint8_t brightness,
     , _panelCount(panelCount)
     , _width(panelCount * 16)
     , _height(16)
-    , _intervalMs(8)  // Fast base speed
+    , _intervalMs(8)  // Consistent fast frame rate for smooth animation
     , _lastUpdate(0)
     , _phase(0)
+    , _speedMultiplier(1.0f)  // Default speed
     , _panelOrder(1)
     , _rotationAngle1(90)
     , _rotationAngle2(90)
@@ -31,7 +32,10 @@ void RainbowWaveAnimation::update() {
     unsigned long now = millis();
     if ((now - _lastUpdate) >= _intervalMs) {
         _lastUpdate = now;
-        _phase += 8;  // Fixed increment - 8 is a good balance for smooth motion
+        
+        // Apply speed multiplier to phase increment
+        _phase += (uint8_t)(8 * _speedMultiplier);
+        
         fillRainbowWave();
         FastLED.show();
     }
@@ -60,13 +64,20 @@ void RainbowWaveAnimation::fillRainbowWave() {
 
 void RainbowWaveAnimation::setBrightness(uint8_t b) {
     _brightness = b;
+    FastLED.setBrightness(b);
 }
 
 void RainbowWaveAnimation::setUpdateInterval(unsigned long intervalMs) {
     _intervalMs = intervalMs;
 }
 
-// If you want to reorder panels or angles on the fly:
+void RainbowWaveAnimation::setSpeedMultiplier(float speedMultiplier) {
+    // Limit to reasonable range (0.1 to 5.0)
+    if (speedMultiplier < 0.1f) speedMultiplier = 0.1f;
+    if (speedMultiplier > 5.0f) speedMultiplier = 5.0f;
+    _speedMultiplier = speedMultiplier;
+}
+
 void RainbowWaveAnimation::setPanelOrder(int order)         { _panelOrder     = order; }
 void RainbowWaveAnimation::setRotationAngle1(int angle)     { _rotationAngle1 = angle; }
 void RainbowWaveAnimation::setRotationAngle2(int angle)     { _rotationAngle2 = angle; }

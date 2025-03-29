@@ -172,14 +172,14 @@ void WebServerManager::setupRoutes() {
             return;
         }
         
-        String json = "[";
+        String json = "{\"animations\":[";
         for(size_t i=0; i< ledManager.getAnimationCount(); i++){
             json += "\"" + ledManager.getAnimationName(i) + "\"";
             if(i < ledManager.getAnimationCount()-1){
                 json += ",";
             }
         }
-        json += "]";
+        json += "],\"current\":" + String(ledManager.getAnimation()) + "}";
         
         releaseLEDManager();
         request->send(200, "application/json", json);
@@ -241,12 +241,12 @@ void WebServerManager::setupRoutes() {
             return;
         }
         
-        String json = "[";
+        String json = "{\"palettes\":[";
         for (size_t i = 0; i < ledManager.getPaletteCount(); i++) {
             json += "\"" + ledManager.getPaletteNameAt(i) + "\"";
             if (i < ledManager.getPaletteCount() - 1) json += ",";
         }
-        json += "]";
+        json += "],\"current\":" + String(ledManager.getCurrentPalette()) + "}";
         
         releaseLEDManager();
         request->send(200, "application/json", json);
