@@ -415,6 +415,10 @@ void LEDManager::setAnimation(int animIndex) {
             // Set speed based on current update interval
             anim->setSpeed(map(ledUpdateInterval, 10, 1500, 0, 255));
             
+            // Connect palette settings
+            anim->setAllPalettes(&ALL_PALETTES);
+            anim->setCurrentPalette(currentPalette);
+            
             _currentAnimation = anim;
             break;
         }
@@ -464,6 +468,10 @@ void LEDManager::setPalette(int idx){
         else if(_currentAnimationIndex==1 && _currentAnimation){
             auto bA=(BlinkAnimation*)_currentAnimation;
             bA->setPalette(&ALL_PALETTES[currentPalette]);
+        }
+        else if(_currentAnimationIndex==4 && _currentAnimation){
+            auto gA=(GameOfLifeAnimation*)_currentAnimation;
+            gA->setCurrentPalette(currentPalette);
         }
         // etc.
     }

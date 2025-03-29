@@ -23,20 +23,53 @@ GameOfLifeAnimation::GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, i
     , _rotationAngle3(90)
     , _hue(0)
     , _hueStep(1)
+    , _allPalettes(nullptr)
+    , _currentPalette(nullptr)
+    , _currentPaletteIndex(0)
 {
-    // Create grids with the correct size for all panels
-    int totalCells = _panelCount * _width * _height;
-    _grid.resize(totalCells, false);
-    _nextGrid.resize(totalCells, false);
+    // Calculate how many bytes we need to store the grid
+    // Each byte stores 8 cells, so we need (width*height*panelCount)/8 + 1 bytes
+    _totalBytes = (_panelCount * _width * _height + 7) / 8;
+    
+    // Resize our byte arrays
+    _gridBytes.resize(_totalBytes, 0);
+    _nextGridBytes.resize(_totalBytes, 0);
     
     // Debug info
-    Serial.printf("GameOfLife Animation created. Grid size: %d x %d, panels: %d\n", 
-                  _width * _panelCount, _height, _panelCount);
+    Serial.printf("GameOfLife Animation created. Grid size: %d x %d, panels: %d, bytes: %d\n", 
+                  _width * _panelCount, _height, _panelCount, _totalBytes);
 }
 
 // Destructor
 GameOfLifeAnimation::~GameOfLifeAnimation() {
     Serial.println("GameOfLife Animation destroyed");
+}
+
+// Get cell state from bit-packed array
+bool GameOfLifeAnimation::getCellState(const std::vector<uint8_t>& grid, int x, int y) {
+    int gridWidth = _width * _panelCount;
+    int cellIndex = y * gridWidth + x;
+    int byteIndex = cellIndex / 8;
+    int bitIndex = cellIndex % 8;
+    
+    // Return the state of the specific bit
+    return (grid[byteIndex] & (1 << bitIndex)) != 0;
+}
+
+// Set cell state in bit-packed array
+void GameOfLifeAnimation::setCellState(std::vector<uint8_t>& grid, int x, int y, bool state) {
+    int gridWidth = _width * _panelCount;
+    int cellIndex = y * gridWidth + x;
+    int byteIndex = cellIndex / 8;
+    int bitIndex = cellIndex % 8;
+    
+    if (state) {
+        // Set the bit
+        grid[byteIndex] |= (1 << bitIndex);
+    } else {
+        // Clear the bit
+        grid[byteIndex] &= ~(1 << bitIndex);
+    }
 }
 
 // Initialize the animation
@@ -56,6 +89,52 @@ void GameOfLifeAnimation::begin() {
     Serial.println("GameOfLife Animation: begin() completed");
 }
 
+// Randomize the grid with a certain density
+void GameOfLifeAnimation::randomize(uint8_t density) {
+    int gridWidth = _width * _panelCount;
+    int totalCells = gridWidth * _height;
+    
+    // Clear all cells
+    for (int i = 0; i < _totalBytes; i++) {
+        _gridBytes[i] = 0;
+        _nextGridBytes[i] = 0;
+    }
+    
+    // Set random cells as alive based on density (0-100%)
+    int cellsToActivate = (totalCells * density) / 100;
+    for (int i = 0; i < cellsToActivate; i++) {
+        int x = random(gridWidth);
+        int y = random(_height);
+        setCellState(_gridBytes, x, y, true);
+        setCellState(_nextGridBytes, x, y, true);
+    }
+    
+    Serial.printf("Randomized grid with density %d%%, activated %d cells\n", 
+                 density, cellsToActivate);
+}
+
+// Set a specific pattern (placeholder for future implementation)
+void GameOfLifeAnimation::setPattern(int patternId) {
+    // We'll just randomize for now
+    randomize(20);
+}
+
+// Set current palette by index
+void GameOfLifeAnimation::setCurrentPalette(int index) {
+    if (_allPalettes == nullptr) {
+        return;
+    }
+    
+    if (index < 0 || index >= (int)_allPalettes->size()) {
+        Serial.printf("Invalid palette index: %d (max: %d)\n", index, _allPalettes->size() - 1);
+        return;
+    }
+    
+    _currentPaletteIndex = index;
+    _currentPalette = &(*_allPalettes)[index];
+    Serial.printf("GameOfLife Animation: Set palette to index %d\n", index);
+}
+
 // Update the animation (called in the main loop)
 void GameOfLifeAnimation::update() {
     unsigned long now = millis();
@@ -63,14 +142,14 @@ void GameOfLifeAnimation::update() {
         _lastUpdate = now;
         _generationCount++;
         
-        // Only compute the next generation every other frame to reduce CPU load
-        if (_generationCount % 2 == 0) {
-            // Calculate next generation and update the display
-            nextGeneration();
-        }
+        // Calculate next generation
+        nextGeneration();
         
-        // Always update the display for smooth transitions
+        // Update the display
         updateDisplay();
+        
+        // Show the LEDs
+        FastLED.show();
         
         // Update color periodically
         if (_generationCount % 10 == 0) {
@@ -83,9 +162,9 @@ void GameOfLifeAnimation::update() {
         
         // Only check every 5 generations to reduce CPU load
         if (_generationCount % 5 == 0) {
-            int totalCells = _panelCount * _width * _height;
-            for (int i = 0; i < totalCells; i++) {
-                if (_grid[i] != _nextGrid[i]) {
+            // Check if any cells have changed
+            for (int i = 0; i < _totalBytes; i++) {
+                if (_gridBytes[i] != _nextGridBytes[i]) {
                     hasChanged = true;
                     break;
                 }
@@ -105,13 +184,8 @@ void GameOfLifeAnimation::update() {
             }
         }
         
-        // Swap the grids
-        _grid = _nextGrid;
-        
-        // Only show every other frame to reduce SPI bus traffic
-        if (_generationCount % 2 == 0) {
-            FastLED.show();
-        }
+        // Swap the grids (simply swap the pointers since we're checking for changes first)
+        std::swap(_gridBytes, _nextGridBytes);
     }
 }
 
@@ -119,41 +193,30 @@ void GameOfLifeAnimation::update() {
 void GameOfLifeAnimation::nextGeneration() {
     int gridWidth = _width * _panelCount;
     
+    // First calculate all next states
     for (int y = 0; y < _height; y++) {
         for (int x = 0; x < gridWidth; x++) {
-            int index = y * gridWidth + x;
             int neighbors = countLiveNeighbors(x, y);
+            bool currentState = getCellState(_gridBytes, x, y);
             
-            // Apply Game of Life rules to determine cell state
-            if (_grid[index]) {
-                // Cell is currently alive
-                if (neighbors < 2 || neighbors > 3) {
-                    // Dies due to under-population or over-population
-                    _nextGrid[index] = false;
-                } else {
-                    // Survives
-                    _nextGrid[index] = true;
-                }
+            // Apply Conway's Game of Life rules
+            bool newState = false;
+            if (currentState) {
+                newState = (neighbors == 2 || neighbors == 3);
             } else {
-                // Cell is currently dead
-                if (neighbors == 3) {
-                    // Becomes alive due to reproduction
-                    _nextGrid[index] = true;
-                } else {
-                    // Stays dead
-                    _nextGrid[index] = false;
-                }
+                newState = (neighbors == 3);
             }
+            setCellState(_nextGridBytes, x, y, newState);
         }
     }
 }
 
-// Count the number of live neighbors for a cell
+// Count live neighbors for a cell
 int GameOfLifeAnimation::countLiveNeighbors(int x, int y) {
     int count = 0;
     int gridWidth = _width * _panelCount;
     
-    // Check all 8 surrounding cells with wrapping around the grid
+    // Check all 8 surrounding cells
     for (int dy = -1; dy <= 1; dy++) {
         for (int dx = -1; dx <= 1; dx++) {
             // Skip the cell itself
@@ -164,7 +227,7 @@ int GameOfLifeAnimation::countLiveNeighbors(int x, int y) {
             int ny = (y + dy + _height) % _height;
             
             // Count live neighbor
-            if (_grid[ny * gridWidth + nx]) {
+            if (getCellState(_gridBytes, nx, ny)) {
                 count++;
             }
         }
@@ -186,16 +249,21 @@ void GameOfLifeAnimation::updateDisplay() {
     // Draw the live cells with colors
     for (int y = 0; y < _height; y++) {
         for (int x = 0; x < gridWidth; x++) {
-            int index = y * gridWidth + x;
-            
-            if (_grid[index]) {
+            if (getCellState(_gridBytes, x, y)) {
                 // Get the LED index based on the physical layout
                 int ledIndex = getLedIndex(x, y);
                 
                 if (ledIndex >= 0 && ledIndex < _numLeds) {
-                    // Use HSV color based on position for visual interest
-                    uint8_t posHue = _hue + ((x * 3 + y * 5) % 64);
-                    leds[ledIndex] = CHSV(posHue, 255, 255);
+                    // Use palette if available, otherwise use HSV
+                    if (_currentPalette != nullptr && !_currentPalette->empty()) {
+                        // Use position and generation count to cycle through palette
+                        int colorIndex = (x + y + _generationCount / 10) % _currentPalette->size();
+                        leds[ledIndex] = (*_currentPalette)[colorIndex];
+                    } else {
+                        // Fallback to HSV color based on position
+                        uint8_t posHue = _hue + ((x * 3 + y * 5) % 64);
+                        leds[ledIndex] = CHSV(posHue, 255, 255);
+                    }
                 }
             }
         }
@@ -204,10 +272,8 @@ void GameOfLifeAnimation::updateDisplay() {
 
 // Get the LED index for a given (x,y) coordinate
 int GameOfLifeAnimation::getLedIndex(int x, int y) {
-    // Determine which panel this point belongs to
+    // Determine which panel this pixel belongs to
     int panel = x / _width;
-    
-    // Get the local x,y within the panel (0-15, 0-15)
     int localX = x % _width;
     int localY = y;
     
@@ -257,168 +323,4 @@ int GameOfLifeAnimation::getLedIndex(int x, int y) {
     }
     
     return index;
-}
-
-// Randomize the grid with a certain density (0-100%)
-void GameOfLifeAnimation::randomize(uint8_t density) {
-    int gridWidth = _width * _panelCount;
-    int totalCells = gridWidth * _height;
-    
-    Serial.printf("GameOfLife Animation: Randomizing grid with %d%% density\n", density);
-    
-    for (int i = 0; i < totalCells; i++) {
-        _grid[i] = (random(100) < density);
-        _nextGrid[i] = _grid[i];
-    }
-}
-
-// Set up a predefined pattern
-void GameOfLifeAnimation::setPattern(int patternId) {
-    int gridWidth = _width * _panelCount;
-    int totalCells = gridWidth * _height;
-    
-    Serial.printf("GameOfLife Animation: Setting pattern %d\n", patternId);
-    
-    // Clear the grid first
-    for (int i = 0; i < totalCells; i++) {
-        _grid[i] = false;
-        _nextGrid[i] = false;
-    }
-    
-    switch (patternId) {
-        case 0: // Gosper glider gun
-            setupGosperGliderGun(10, 3);
-            break;
-        case 1: // Glider
-            setupGlider(5, 5);
-            break;
-        case 2: // Pulsar
-            setupPulsar(gridWidth / 2 - 6, _height / 2 - 6);
-            break;
-        case 3: // Multiple gliders
-            setupGlider(5, 5);
-            setupGlider(15, 10);
-            setupGlider(25, 5);
-            break;
-        default:
-            // Random by default
-            randomize(20);
-            break;
-    }
-}
-
-// Set up a glider (simple spaceship)
-void GameOfLifeAnimation::setupGlider(int x, int y) {
-    int gridWidth = _width * _panelCount;
-    
-    // Classic glider pattern
-    if (x + 2 < gridWidth && y + 2 < _height) {
-        _grid[(y+0) * gridWidth + (x+1)] = true;
-        _grid[(y+1) * gridWidth + (x+2)] = true;
-        _grid[(y+2) * gridWidth + (x+0)] = true;
-        _grid[(y+2) * gridWidth + (x+1)] = true;
-        _grid[(y+2) * gridWidth + (x+2)] = true;
-        
-        // Copy to next grid as well
-        for (size_t i = 0; i < _grid.size(); i++) {
-            _nextGrid[i] = _grid[i];
-        }
-    }
-}
-
-// Set up a pulsar (period 3 oscillator)
-void GameOfLifeAnimation::setupPulsar(int x, int y) {
-    int gridWidth = _width * _panelCount;
-    
-    // Pulsar pattern (period 3 oscillator)
-    // Only setup if it fits within the grid
-    if (x + 12 < gridWidth && y + 12 < _height) {
-        // Top and bottom rows
-        for (int dx = 2; dx <= 4; dx++) {
-            _grid[(y+0) * gridWidth + (x+dx)] = true;
-            _grid[(y+0) * gridWidth + (x+dx+6)] = true;
-            _grid[(y+5) * gridWidth + (x+dx)] = true;
-            _grid[(y+5) * gridWidth + (x+dx+6)] = true;
-            
-            _grid[(y+7) * gridWidth + (x+dx)] = true;
-            _grid[(y+7) * gridWidth + (x+dx+6)] = true;
-            _grid[(y+12) * gridWidth + (x+dx)] = true;
-            _grid[(y+12) * gridWidth + (x+dx+6)] = true;
-        }
-        
-        // Left and right columns
-        for (int dy = 2; dy <= 4; dy++) {
-            _grid[(y+dy) * gridWidth + (x+0)] = true;
-            _grid[(y+dy) * gridWidth + (x+5)] = true;
-            _grid[(y+dy) * gridWidth + (x+7)] = true;
-            _grid[(y+dy) * gridWidth + (x+12)] = true;
-            
-            _grid[(y+dy+6) * gridWidth + (x+0)] = true;
-            _grid[(y+dy+6) * gridWidth + (x+5)] = true;
-            _grid[(y+dy+6) * gridWidth + (x+7)] = true;
-            _grid[(y+dy+6) * gridWidth + (x+12)] = true;
-        }
-        
-        // Copy to next grid
-        for (size_t i = 0; i < _grid.size(); i++) {
-            _nextGrid[i] = _grid[i];
-        }
-    }
-}
-
-// Set up a Gosper glider gun
-void GameOfLifeAnimation::setupGosperGliderGun(int x, int y) {
-    int gridWidth = _width * _panelCount;
-    
-    // Only setup if it fits within the grid
-    if (x + 36 < gridWidth && y + 9 < _height) {
-        // Left block
-        _grid[(y+4) * gridWidth + (x+0)] = true;
-        _grid[(y+4) * gridWidth + (x+1)] = true;
-        _grid[(y+5) * gridWidth + (x+0)] = true;
-        _grid[(y+5) * gridWidth + (x+1)] = true;
-        
-        // Left ship
-        _grid[(y+2) * gridWidth + (x+12)] = true;
-        _grid[(y+2) * gridWidth + (x+13)] = true;
-        _grid[(y+3) * gridWidth + (x+11)] = true;
-        _grid[(y+3) * gridWidth + (x+15)] = true;
-        _grid[(y+4) * gridWidth + (x+10)] = true;
-        _grid[(y+4) * gridWidth + (x+16)] = true;
-        _grid[(y+5) * gridWidth + (x+10)] = true;
-        _grid[(y+5) * gridWidth + (x+14)] = true;
-        _grid[(y+5) * gridWidth + (x+16)] = true;
-        _grid[(y+5) * gridWidth + (x+17)] = true;
-        _grid[(y+6) * gridWidth + (x+10)] = true;
-        _grid[(y+6) * gridWidth + (x+16)] = true;
-        _grid[(y+7) * gridWidth + (x+11)] = true;
-        _grid[(y+7) * gridWidth + (x+15)] = true;
-        _grid[(y+8) * gridWidth + (x+12)] = true;
-        _grid[(y+8) * gridWidth + (x+13)] = true;
-        
-        // Right ship
-        _grid[(y+0) * gridWidth + (x+24)] = true;
-        _grid[(y+1) * gridWidth + (x+22)] = true;
-        _grid[(y+1) * gridWidth + (x+24)] = true;
-        _grid[(y+2) * gridWidth + (x+20)] = true;
-        _grid[(y+2) * gridWidth + (x+21)] = true;
-        _grid[(y+3) * gridWidth + (x+20)] = true;
-        _grid[(y+3) * gridWidth + (x+21)] = true;
-        _grid[(y+4) * gridWidth + (x+20)] = true;
-        _grid[(y+4) * gridWidth + (x+21)] = true;
-        _grid[(y+5) * gridWidth + (x+22)] = true;
-        _grid[(y+5) * gridWidth + (x+24)] = true;
-        _grid[(y+6) * gridWidth + (x+24)] = true;
-        
-        // Right block
-        _grid[(y+2) * gridWidth + (x+34)] = true;
-        _grid[(y+2) * gridWidth + (x+35)] = true;
-        _grid[(y+3) * gridWidth + (x+34)] = true;
-        _grid[(y+3) * gridWidth + (x+35)] = true;
-        
-        // Copy to next grid
-        for (size_t i = 0; i < _grid.size(); i++) {
-            _nextGrid[i] = _grid[i];
-        }
-    }
 }

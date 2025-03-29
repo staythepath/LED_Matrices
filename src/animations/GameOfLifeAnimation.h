@@ -31,8 +31,13 @@ public:
     // Randomize the grid with a certain density (0-100%)
     void randomize(uint8_t density = 33);
     
-    // Reset with a specific pattern (e.g., glider, pulsar, etc.)
+    // Set pattern (placeholder for future patterns)
     void setPattern(int patternId);
+
+    // Palette support
+    void setAllPalettes(const std::vector<std::vector<CRGB>>* allPalettes) { _allPalettes = allPalettes; }
+    void setCurrentPalette(int index);
+    void setPalette(const std::vector<CRGB>* palette) { _currentPalette = palette; }
 
 private:
     // Grid dimensions
@@ -40,9 +45,11 @@ private:
     int _height;
     int _panelCount;
     
-    // Grid state (true = alive, false = dead)
-    std::vector<bool> _grid;
-    std::vector<bool> _nextGrid;
+    // Grid state stored as bit-packed uint8_t arrays for memory efficiency
+    // Each byte stores 8 cells, so we need (width*height*panelCount)/8 + 1 bytes
+    std::vector<uint8_t> _gridBytes;
+    std::vector<uint8_t> _nextGridBytes;
+    int _totalBytes;
     
     // Animation timing
     unsigned long _lastUpdate;
@@ -60,6 +67,15 @@ private:
     uint8_t _hue;
     uint8_t _hueStep;
     
+    // Palette support
+    const std::vector<std::vector<CRGB>>* _allPalettes;
+    const std::vector<CRGB>* _currentPalette;
+    int _currentPaletteIndex;
+    
+    // Helper methods for bit-packed grid operations
+    bool getCellState(const std::vector<uint8_t>& grid, int x, int y);
+    void setCellState(std::vector<uint8_t>& grid, int x, int y, bool state);
+    
     // Calculate the next generation based on Game of Life rules
     void nextGeneration();
     
@@ -71,11 +87,6 @@ private:
     
     // Update the LED display with the current grid state
     void updateDisplay();
-    
-    // Set up predefined patterns
-    void setupGlider(int x, int y);
-    void setupPulsar(int x, int y);
-    void setupGosperGliderGun(int x, int y);
 };
 
 #endif // GAMEOFLIFEANIMATION_H
