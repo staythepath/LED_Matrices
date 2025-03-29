@@ -14,7 +14,7 @@ RainbowWaveAnimation::RainbowWaveAnimation(uint16_t numLeds, uint8_t brightness,
     , _intervalMs(50)
     , _lastUpdate(0)
     , _phase(0)
-    , _panelOrder(0)
+    , _panelOrder(1)
     , _rotationAngle1(90)
     , _rotationAngle2(90)
     , _rotationAngle3(90)

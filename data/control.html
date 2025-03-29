@@ -74,7 +74,7 @@
     <h1>LED Control Panel</h1>
 
     <!-- Animations -->
-    <div class="section">
+    <div class="section" id="animationSection">
       <h2>Animations</h2>
       <div>
         <label for="selAnimation">Select Animation:</label>
@@ -83,7 +83,7 @@
     </div>
 
     <!-- Palettes -->
-    <div class="section">
+    <div class="section" id="paletteSection">
       <h2>Palettes</h2>
       <div>
         <label for="paletteSelect">Select Palette:</label>
@@ -92,7 +92,7 @@
     </div>
 
     <!-- Brightness / Fade / Tail / Spawn / Max Flakes / Speed -->
-    <div class="section">
+    <div class="section" id="flakeSection">
       <h2>Flake Settings</h2>
 
       <div class="slider-container">
@@ -164,16 +164,16 @@
         <input
           type="number"
           id="txtSpeed"
-          min="10"
-          max="60000"
+          min="3"
+          max="1500"
           step="1"
-          value="80"
+          value="10"
         />
       </div>
     </div>
 
     <!-- Panel Settings -->
-    <div class="section">
+    <div class="section" id="panelSection">
       <h2>Panel Settings</h2>
 
       <!-- Panel Count -->
@@ -191,7 +191,7 @@
     </div>
 
     <!-- Log / Output -->
-    <div class="section">
+    <div class="section" id="logSection">
       <h2>Log</h2>
       <div id="log"></div>
     </div>

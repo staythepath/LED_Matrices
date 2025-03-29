@@ -24,7 +24,7 @@ LEDManager::LEDManager()
     , maxFlakes(500)
     , tailLength(3)
     , fadeAmount(39)
-    , panelOrder(0)
+    , panelOrder(1)  // Start with right panel first instead of left
     , rotationAngle1(90)
     , rotationAngle2(90)
     , ledUpdateInterval(38)
@@ -51,7 +51,7 @@ void LEDManager::reinitFastLED() {
         _numLeds = MAX_LEDS;
     }
     FastLED.clearData();
-    FastLED.addLeds<WS2812B, 45, GRB>(leds, _numLeds).setCorrection(TypicalLEDStrip);
+    FastLED.addLeds<WS2812B, LED_PIN, GRB>(leds, _numLeds).setCorrection(TypicalLEDStrip);
     FastLED.show();
 }
 

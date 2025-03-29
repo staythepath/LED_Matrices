@@ -7,7 +7,7 @@
 
 // Include your classes
 #include "config.h"
-#include "SensorManager.h"
+// #include "SensorManager.h"  // Disabled DHT sensor
 #include "LEDManager.h"
 #include "LCDManager.h"      // Our U8g2-based manager
 #include "TelnetManager.h"
@@ -19,7 +19,7 @@
 
 // Global objects
 LEDManager ledManager;
-SensorManager sensorManager(DHTPIN, DHTTYPE);
+// SensorManager sensorManager(DHTPIN, DHTTYPE);  // Disabled DHT sensor
 TelnetManager telnetManager(23, &ledManager);
 
 // Our U8G2-based "LCD" manager
@@ -39,37 +39,48 @@ void setup() {
     Serial.begin(115200);
     delay(1000);
 
-    ledManager.begin();
-    lcdManager.begin();
-    sensorManager.begin();
-
-    // Initialize the new menu+encoder
-    encoder.begin();      // <-- NEW
-    menu.begin();         // <-- NEW
-
-    // WiFi, OTA, webServer, etc.
+    // Start WiFi with retries
+    Serial.printf("Connecting to WiFi %s", ssid);
     WiFi.begin(ssid, password);
-    while (WiFi.status() != WL_CONNECTED) {
+    
+    int wifiRetries = 0;
+    while (WiFi.status() != WL_CONNECTED && wifiRetries < 20) { // 10 second timeout
         delay(500);
         Serial.print(".");
+        wifiRetries++;
     }
-    Serial.println("\nWi-Fi connected. IP: " + WiFi.localIP().toString());
     
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("\nWi-Fi connected!");
+        Serial.println("IP address: " + WiFi.localIP().toString());
+    } else {
+        Serial.println("\nWiFi connection failed! Will try again in background.");
+        WiFi.begin(ssid, password); // Keep trying in background
+    }
+
+    // Start core functionality
+    ledManager.begin();
+    lcdManager.begin();
+    // sensorManager.begin();  // Disabled DHT sensor
+
+    // Initialize the new menu+encoder
+    encoder.begin();
+    menu.begin();
+
+    // Start web server even if WiFi failed (it will work once WiFi connects)
     configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
     webServerManager.begin();
     telnetManager.begin();
+
+    Serial.println("Setup complete - web UI available at: http://" + WiFi.localIP().toString());
 }
 
 void loop() {
     telnetManager.handle();
 
-    // 1) Read sensor
-    float temp_c, hum;
-    if (!sensorManager.readSensor(temp_c, hum)) {
-        Serial.println("Failed to read from DHT sensor!");
-        temp_c = 0;
-        hum = 0;
-    }
+    // 1) Use dummy values instead of reading from sensor
+    float temp_c = 25.0;  // Fixed temperature (25°C)
+    float hum = 50.0;     // Fixed humidity (50%)
     float temp_f = (temp_c * 9 / 5) + 32;
 
     // 2) Check the time
