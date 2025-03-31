@@ -16,7 +16,7 @@ public:
      * @param brightness initial brightness
      * @param panelCount how many 16x16 panels
      */
-    TrafficAnimation(uint16_t totalLeds, uint8_t brightness, int panelCount);
+    TrafficAnimation(uint16_t totalLeds, uint8_t brightness, int panelCount = 2);
 
     void begin() override;
     void update() override;

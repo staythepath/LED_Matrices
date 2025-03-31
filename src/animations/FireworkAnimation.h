@@ -24,7 +24,7 @@ struct Firework {
 
 class FireworkAnimation : public BaseAnimation {
 public:
-    FireworkAnimation(uint16_t numLeds, uint8_t brightness, int panelCount);
+    FireworkAnimation(uint16_t numLeds, uint8_t brightness, int panelCount = 2);
     virtual ~FireworkAnimation() {}
 
     // Required BaseAnimation methods

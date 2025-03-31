@@ -12,74 +12,107 @@
 #include <FS.h>           
 #include <SPIFFS.h>       // For SPIFFS
 #include "LEDManager.h"   // So we can call LEDManager methods
+#include "esp_task_wdt.h" // Include ESP32 watchdog timer control
+#include "LogManager.h"   // Include LogManager for system logs
+
+// Format SPIFFS if mount fails
+#define FORMAT_SPIFFS_IF_FAILED true
 
 // If you have a global LEDManager instance in main.cpp:
 //   LEDManager ledManager;
-// Then do:
+// then declare it as extern so we can use it here
 extern LEDManager ledManager;
 
-// Mutex to prevent concurrent access to LEDManager
-SemaphoreHandle_t ledManagerMutex = NULL;
+// Create a global mutex for thread-safe access to LEDManager
+static SemaphoreHandle_t ledManagerMutex = NULL;
 
 // Constructor
 WebServerManager::WebServerManager(int port)
     : _server(port) {
     // Create mutex for thread-safe access to LEDManager
     ledManagerMutex = xSemaphoreCreateMutex();
+    
+    // Subscribe current thread to TWDT
+    esp_task_wdt_add(NULL);
+}
+
+// Helper function to safely access LEDManager with improved timeout and retry logic
+static bool acquireLEDManager(uint32_t timeout = 1000) { // Increased default timeout to 1000ms
+    if (ledManagerMutex == NULL) return true; // No mutex, just proceed
+    
+    // Reset watchdog timer
+    esp_task_wdt_reset();
+    
+    // Try to acquire mutex with timeout
+    if (xSemaphoreTake(ledManagerMutex, pdMS_TO_TICKS(timeout)) == pdTRUE) {
+        return true;
+    }
+    
+    // If we reach here, initial acquisition failed - try one more time after yielding
+    Serial.println("Warning: First mutex acquisition failed, retrying after yield");
+    vTaskDelay(pdMS_TO_TICKS(50)); // Short delay to let other tasks run
+    
+    // Reset watchdog again before second attempt
+    esp_task_wdt_reset();
+    
+    bool acquired = xSemaphoreTake(ledManagerMutex, pdMS_TO_TICKS(timeout)) == pdTRUE;
+    if (!acquired) {
+        Serial.println("Critical: Failed to acquire mutex after retry - possible deadlock");
+        // Force release the mutex in extreme cases (might cause other issues but prevents permanent lock)
+        xSemaphoreGive(ledManagerMutex);
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    return acquired;
+}
+
+static void releaseLEDManager() {
+    if (ledManagerMutex != NULL) {
+        xSemaphoreGive(ledManagerMutex);
+        // Add small delay to prevent immediate reacquisition
+        vTaskDelay(pdMS_TO_TICKS(5)); 
+        
+        // Reset watchdog after releasing mutex
+        esp_task_wdt_reset();
+    }
+}
+
+// Initialize SPIFFS with better error handling
+bool WebServerManager::initSPIFFS() {
+    Serial.println("Initializing SPIFFS...");
+    
+    // Report free heap before SPIFFS init
+    Serial.printf("Free heap before SPIFFS init: %d bytes\n", ESP.getFreeHeap());
+    
+    // Attempt to mount SPIFFS
+    if (!SPIFFS.begin(FORMAT_SPIFFS_IF_FAILED)) {
+        Serial.println("ERROR: SPIFFS mount failed!");
+        return false;
+    }
+    
+    // Get SPIFFS info
+    size_t total = SPIFFS.totalBytes();
+    size_t used = SPIFFS.usedBytes();
+    Serial.printf("SPIFFS initialized - Total: %u bytes, Used: %u bytes, Free: %u bytes\n", 
+                 total, used, total - used);
+    
+    // Report free heap after SPIFFS init
+    Serial.printf("Free heap after SPIFFS init: %d bytes\n", ESP.getFreeHeap());
+    
+    return true;
 }
 
 // Begin the web server
 void WebServerManager::begin() {
+    // Init SPIFFS first with proper error handling
+    if (!initSPIFFS()) {
+        Serial.println("CRITICAL: Failed to initialize SPIFFS, web server will be limited");
+        // Continue anyway, but some features won't work
+    }
+
+    // Reset watchdog before setting up routes
+    esp_task_wdt_reset();
+    
     Serial.println("Starting Web Server...");
-
-    // Mount SPIFFS with retry
-    int spiffsRetries = 0;
-    while (!SPIFFS.begin(true) && spiffsRetries < 3) {
-        Serial.println("Failed to mount SPIFFS, retrying...");
-        delay(1000);
-        spiffsRetries++;
-    }
-
-    if (SPIFFS.begin(true)) {
-        Serial.println("SPIFFS mounted successfully.");
-    } else {
-        Serial.println("WARNING: SPIFFS mount failed! Web UI may have limited functionality.");
-        // Continue anyway - some routes will still work
-    }
-
-    // Define routes
-    setupRoutes();
-
-    // Start server
-    _server.begin();
-    Serial.println("Web Server started on port 80.");
-}
-
-// Handle clients (AsyncWebServer manages this automatically)
-void WebServerManager::handleClient() {
-    // Nothing special needed here
-}
-
-// Optional page template method
-String WebServerManager::createPageTemplate(const String& title, const String& content) {
-    return "<!DOCTYPE html><html><head><title>" + title + 
-           "</title></head><body>" + content + "</body></html>";
-}
-
-// Helper function to safely access LEDManager
-bool acquireLEDManager(uint32_t timeout = 100) {
-    if (ledManagerMutex == NULL) return true; // No mutex, just proceed
-    return xSemaphoreTake(ledManagerMutex, pdMS_TO_TICKS(timeout)) == pdTRUE;
-}
-
-void releaseLEDManager() {
-    if (ledManagerMutex != NULL) {
-        xSemaphoreGive(ledManagerMutex);
-    }
-}
-
-// Define HTTP routes
-void WebServerManager::setupRoutes() {
 
     /****************************************************
      * Serve SPIFFS-based files
@@ -91,6 +124,8 @@ void WebServerManager::setupRoutes() {
     _server.serveStatic("/updatefs", SPIFFS, "/updatefs.html");
     // The main UI for controlling LED parameters
     _server.serveStatic("/control", SPIFFS, "/control.html");
+    // System logs page
+    _server.serveStatic("/logs", SPIFFS, "/logs.html");
 
     /****************************************************
      * OTA Firmware Update
@@ -99,6 +134,8 @@ void WebServerManager::setupRoutes() {
         [](AsyncWebServerRequest *request) {
             bool error = Update.hasError();
             request->send(200, "text/plain", error ? "FAIL" : "OK");
+            Serial.println("Firmware update complete, restarting in 1 second...");
+            delay(1000); 
             ESP.restart();
         },
         [](AsyncWebServerRequest *request, const String &filename, size_t index,
@@ -130,6 +167,8 @@ void WebServerManager::setupRoutes() {
         [](AsyncWebServerRequest *request) {
             bool error = Update.hasError();
             request->send(200, "text/plain", error ? "FS Update Failed" : "FS Update OK");
+            Serial.println("SPIFFS update complete, restarting in 1 second...");
+            delay(1000);
             ESP.restart();
         },
         [](AsyncWebServerRequest *request, const String &filename, size_t index,
@@ -159,7 +198,8 @@ void WebServerManager::setupRoutes() {
      ****************************************************/
     _server.on("/rebootNow", HTTP_GET, [](AsyncWebServerRequest *request){
         request->send(200, "text/plain", "Rebooting...");
-        delay(500);
+        Serial.println("Manual reboot requested, restarting in 1 second...");
+        delay(1000);
         ESP.restart();
     });
 
@@ -190,6 +230,9 @@ void WebServerManager::setupRoutes() {
      * Set Animations
      ****************************************************/
     _server.on("/api/setAnimation", HTTP_GET, [](AsyncWebServerRequest *request){
+        // Reset watchdog timer at start of request
+        esp_task_wdt_reset();
+        
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
             return;
@@ -207,11 +250,18 @@ void WebServerManager::setupRoutes() {
             return;
         }
         
+        // Reset watchdog before potentially long operation
+        esp_task_wdt_reset();
+        
         ledManager.setAnimation(animIndex);
         String msg = "Animation " + String(animIndex) + " ("
             + ledManager.getAnimationName(animIndex) + ") selected.";
         
         releaseLEDManager();
+        
+        // Reset watchdog after completing operation
+        esp_task_wdt_reset();
+        
         request->send(200, "text/plain", msg);
         Serial.println(msg);
     });
@@ -726,4 +776,64 @@ void WebServerManager::setupRoutes() {
         releaseLEDManager();
         request->send(200,"text/plain", "Identifying panels...");
     });
+
+    /****************************************************
+     * System Logs API
+     ****************************************************/
+    // Get system logs
+    _server.on("/api/getLogs", HTTP_GET, [](AsyncWebServerRequest *request) {
+        String level = "info";
+        if (request->hasParam("level")) {
+            level = request->getParam("level")->value();
+        }
+        
+        LogManager::LogLevel logLevel = LogManager::INFO;
+        if (level == "debug") logLevel = LogManager::DEBUG;
+        else if (level == "warning") logLevel = LogManager::WARNING;
+        else if (level == "error") logLevel = LogManager::ERROR;
+        else if (level == "critical") logLevel = LogManager::CRITICAL;
+        
+        // Don't acquire the LED manager for logs - this can cause deadlocks
+        try {
+            // Get logs directly - avoid mutex contention
+            String logs = LogManager::getInstance().getLogs(logLevel);
+            request->send(200, "text/plain", logs);
+        } catch (...) {
+            // Catch any exception to prevent server crashes
+            request->send(200, "text/plain", "Error retrieving logs - see serial console");
+            Serial.println("Error retrieving logs in /api/getLogs");
+        }
+    });
+    
+    // Clear system logs
+    _server.on("/api/clearLogs", HTTP_GET, [](AsyncWebServerRequest *request) {
+        try {
+            LogManager::getInstance().clearLogs();
+            request->send(200, "text/plain", "Logs cleared successfully");
+        } catch (...) {
+            request->send(200, "text/plain", "Error clearing logs - see serial console");
+            Serial.println("Error clearing logs in /api/clearLogs");
+        }
+    });
+
+    // Start server
+    _server.begin();
+    Serial.println("Web Server started on port 80.");
+    
+    // Now that everything is initialized, tell LEDManager to start the actual animation
+    if (acquireLEDManager()) {
+        ledManager.finishInitialization();
+        releaseLEDManager();
+    }
+}
+
+// Handle clients (AsyncWebServer manages this automatically)
+void WebServerManager::handleClient() {
+    // Nothing special needed here
+}
+
+// Optional page template method
+String WebServerManager::createPageTemplate(const String& title, const String& content) {
+    return "<!DOCTYPE html><html><head><title>" + title + 
+           "</title></head><body>" + content + "</body></html>";
 }

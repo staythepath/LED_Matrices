@@ -4,36 +4,70 @@
     <meta charset="UTF-8" />
     <title>ESP32 Controller</title>
     <style>
+      /* Updated CSS for dark mode and improved UI */
       body {
-        font-family: Arial, sans-serif;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         margin: 20px;
         padding: 0;
-        background: #f4f4f9;
-        color: #333;
+        background: #121212;
+        color: #E0E0E0;
       }
+
       h1 {
-        color: #0056b3;
+        color: #1E90FF;
       }
+
       nav {
         margin-bottom: 20px;
         padding: 10px;
-        background: #0056b3;
-        color: white;
+        background: #1F1F1F;
+        color: #E0E0E0;
       }
+
       nav a {
         margin-right: 15px;
         text-decoration: none;
-        color: white;
+        color: #E0E0E0;
         font-weight: bold;
       }
+
       nav a:hover {
         text-decoration: underline;
       }
+
       footer {
         margin-top: 20px;
         text-align: center;
         font-size: 0.8em;
-        color: #555;
+        color: #888;
+      }
+
+      /* New style for resizable log box */
+      .log-box {
+        width: 100%;
+        min-height: 200px;
+        height: 300px;
+        resize: vertical;
+        overflow: auto;
+        background: #1e1e1e;
+        border: 1px solid #333;
+        padding: 10px;
+        box-sizing: border-box;
+      }
+
+      /* Style for progress bars (e.g., firmware and SPIFFS upload) */
+      .progress-bar {
+        max-width: 400px;
+        width: 100%;
+        margin: 10px auto;
+        display: block;
+      }
+
+      /* Optional container for page content */
+      .container {
+        max-width: 800px;
+        margin: auto;
+        padding: 20px;
       }
     </style>
   </head>

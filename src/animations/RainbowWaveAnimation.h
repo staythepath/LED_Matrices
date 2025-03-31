@@ -16,7 +16,7 @@ public:
      * @param brightness  - initial brightness
      * @param panelCount  - how many 16x16 panels
      */
-    RainbowWaveAnimation(uint16_t numLeds, uint8_t brightness, int panelCount=3);
+    RainbowWaveAnimation(uint16_t numLeds, uint8_t brightness, int panelCount=2);
 
     void begin() override;
     void update() override;

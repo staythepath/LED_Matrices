@@ -19,6 +19,10 @@ public:
     void update();
     void show();
 
+    // Loading animation
+    void showLoadingAnimation();
+    void finishInitialization();
+
     // Panel count
     void setPanelCount(int count);
     int  getPanelCount() const;
@@ -72,12 +76,14 @@ private:
     void reinitFastLED();
     void cleanupAnimation();
     void createPalettes();
+    void configureCurrentAnimation();
 
     // The bigger arrow + digit methods
     void drawUpArrow(int baseIndex);
     void drawLargeDigit(int baseIndex, int digit);
 
 private:
+    bool _isInitializing;  // Flag to indicate system is still initializing
     int      _panelCount; // default: 3
     uint16_t _numLeds;
 

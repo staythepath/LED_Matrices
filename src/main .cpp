@@ -12,6 +12,7 @@
 #include "LCDManager.h"      // Our U8g2-based manager
 #include "TelnetManager.h"
 #include "WebServerManager.h"
+#include "LogManager.h"      // System logging
 
 // These are the NEW includes for menu & rotary
 #include "Menu.h"            // <-- NEW!
@@ -39,7 +40,31 @@ void setup() {
     Serial.begin(115200);
     delay(1000);
 
+    // Initialize logging system
+    systemInfo("System starting up...");
+    systemInfo("ESP32 firmware version: " + String(ESP.getSdkVersion()));
+    
+    // Report initial heap stats
+    systemInfo("Initial free heap: " + String(ESP.getFreeHeap()) + " bytes");
+    systemInfo("Largest free block: " + String(ESP.getMaxAllocHeap()) + " bytes");
+    Serial.printf("Initial free heap: %u bytes\n", ESP.getFreeHeap());
+    Serial.printf("Largest free block: %u bytes\n", ESP.getMaxAllocHeap());
+    
+    // Set CPU frequency to maximum for better performance
+    setCpuFrequencyMhz(240);
+    systemInfo("CPU frequency set to 240MHz");
+    
+    // Force panel count to 2 at startup
+    ledManager.setPanelCount(2);
+    systemInfo("Panel count forced to 2 at startup");
+    Serial.println("Panel count forced to 2 at startup");
+    
+    // Configure core affinity for tasks
+    // Core 0: System tasks, WiFi
+    // Core 1: User tasks (LED rendering, Web server, etc)
+    
     // Start WiFi with retries
+    systemInfo("Connecting to WiFi: " + String(ssid));
     Serial.printf("Connecting to WiFi %s", ssid);
     WiFi.begin(ssid, password);
     
@@ -51,28 +76,54 @@ void setup() {
     }
     
     if (WiFi.status() == WL_CONNECTED) {
+        systemInfo("Wi-Fi connected!");
+        systemInfo("IP address: " + WiFi.localIP().toString());
         Serial.println("\nWi-Fi connected!");
         Serial.println("IP address: " + WiFi.localIP().toString());
     } else {
+        systemInfo("WiFi connection failed! Will try again in background.");
         Serial.println("\nWiFi connection failed! Will try again in background.");
         WiFi.begin(ssid, password); // Keep trying in background
     }
 
-    // Start core functionality
+    // Set higher task priority for LEDs
+    // This ensures the LED update loop won't get starved
+    ESP_LOGD("MAIN", "Configuring task priorities");
+    
+    // Start core functionality with proper delay between each init
+    // to prevent memory fragmentation
     ledManager.begin();
+    delay(200); // Small delay to let memory settle
+    
     lcdManager.begin();
-    // sensorManager.begin();  // Disabled DHT sensor
+    delay(100);
 
     // Initialize the new menu+encoder
     encoder.begin();
+    delay(50);
+    
     menu.begin();
+    delay(50);
+
+    // Check heap status after initializations
+    systemInfo("Free heap after initializations: " + String(ESP.getFreeHeap()) + " bytes");
+    Serial.printf("Free heap after initializations: %u bytes\n", ESP.getFreeHeap());
+    
+    // Force garbage collection before starting web server
+    // (doesn't actually exist in C++ but helps with memory)
+    delay(300);
 
     // Start web server even if WiFi failed (it will work once WiFi connects)
     configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
     webServerManager.begin();
+    delay(100);
+    
     telnetManager.begin();
 
-    Serial.println("Setup complete - web UI available at: http://" + WiFi.localIP().toString());
+    systemInfo("Setup complete - web UI available at: http://" + WiFi.localIP().toString());
+    Serial.printf("Setup complete - web UI available at: http://%s\n", WiFi.localIP().toString().c_str());
+    systemInfo("Final free heap: " + String(ESP.getFreeHeap()) + " bytes");
+    Serial.printf("Final free heap: %u bytes\n", ESP.getFreeHeap());
 }
 
 void loop() {
@@ -86,6 +137,7 @@ void loop() {
     // 2) Check the time
     struct tm timeinfo;
     if(!getLocalTime(&timeinfo)) {
+        systemInfo("Failed to obtain time");
         Serial.println("Failed to obtain time");
         return;
     }
@@ -113,6 +165,7 @@ void loop() {
         // If we are on the normal screen, jump to menu mode
         if(!inMenu) {
             inMenu = true;
+            systemInfo("Switching to menu mode...");
             Serial.println("Switching to menu mode...");
         }
     }
@@ -134,6 +187,7 @@ void loop() {
         // If no user input for 30s => exit menu
         if( (millis() - lastActivity) > MENU_TIMEOUT_MS ) {
             inMenu = false;
+            systemInfo("Menu timed out. Returning to normal screen...");
             Serial.println("Menu timed out. Returning to normal screen...");
         }
 

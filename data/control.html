@@ -59,6 +59,25 @@
         overflow-y: auto;
         background: #fafafa;
       }
+      .error-message {
+        background-color: #f8d7da;
+        color: #721c24;
+        padding: 10px 15px;
+        margin: 10px 0;
+        border: 1px solid #f5c6cb;
+        border-radius: 4px;
+        position: fixed;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 1000;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        animation: fadeIn 0.3s ease-in-out;
+      }
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+        to { opacity: 1; transform: translateX(-50%) translateY(0); }
+      }
     </style>
   </head>
   <body>
@@ -69,6 +88,7 @@
       <a href="/updatefs">Update SPIFFS</a>
       <a href="/reboot">Reboot</a>
       <a href="/control">Control Panel</a>
+      <a href="/logs">System Logs</a>
     </nav>
 
     <h1>LED Control Panel</h1>
@@ -179,8 +199,8 @@
       <!-- Panel Count -->
       <div class="slider-container" style="margin-bottom: 10px">
         <label>Panel Count (16x16 each):</label>
-        <input type="range" id="sliderPanelCount" min="1" max="8" value="3" />
-        <input type="number" id="numPanelCount" min="1" max="8" value="3" />
+        <input type="range" id="sliderPanelCount" min="1" max="8" value="2" />
+        <input type="number" id="numPanelCount" min="1" max="8" value="2" />
         <button id="btnSetPanelCount">Apply</button>
       </div>
 

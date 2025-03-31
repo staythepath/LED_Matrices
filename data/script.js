@@ -26,9 +26,10 @@ function debounce(func, wait) {
 const apiQueue = {
   queue: [],
   processing: false,
+  maxRetries: 3,
   
   add: function(url, callback) {
-    this.queue.push({ url, callback });
+    this.queue.push({ url, callback, retries: 0 });
     if (!this.processing) {
       this.processNext();
     }
@@ -41,19 +42,53 @@ const apiQueue = {
     }
     
     this.processing = true;
-    const { url, callback } = this.queue.shift();
+    const request = this.queue.shift();
+    const { url, callback, retries } = request;
+    
+    log(`Sending request to ${url}...`);
     
     fetch(url)
-      .then(r => r.text())
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+        }
+        return response.text();
+      })
       .then(txt => {
         if (callback) callback(txt);
-        // Wait 100ms between API calls to give ESP32 time to breathe
-        setTimeout(() => this.processNext(), 100);
+        // Wait 300ms between API calls to give ESP32 more breathing room
+        setTimeout(() => this.processNext(), 300);
       })
       .catch(err => {
         log(`Error calling ${url}: ${err}`);
-        // Continue processing even if there was an error
-        setTimeout(() => this.processNext(), 100);
+        
+        // Retry logic for failed requests
+        if (retries < this.maxRetries) {
+          log(`Retrying request (${retries + 1}/${this.maxRetries})...`);
+          // Put back in queue with incremented retry count
+          this.queue.unshift({ 
+            url, 
+            callback, 
+            retries: retries + 1 
+          });
+          // Wait longer between retries (exponential backoff with higher initial delay)
+          setTimeout(() => this.processNext(), 1000 * Math.pow(2, retries));
+        } else {
+          log(`Failed after ${this.maxRetries} attempts. Giving up.`);
+          // Show error to user
+          const errorDiv = document.createElement('div');
+          errorDiv.className = 'error-message';
+          errorDiv.textContent = `Failed to communicate with LED controller. Try refreshing the page.`;
+          document.body.prepend(errorDiv);
+          setTimeout(() => {
+            if (errorDiv.parentNode) {
+              errorDiv.parentNode.removeChild(errorDiv);
+            }
+          }, 5000);
+          
+          // Continue processing other requests
+          setTimeout(() => this.processNext(), 300);
+        }
       });
   }
 };
@@ -61,201 +96,407 @@ const apiQueue = {
 /************************************************
  * On window load, fetch initial data
  ************************************************/
-window.addEventListener("load", () => {
-  log("Page loaded, fetching data...");
+document.addEventListener("DOMContentLoaded", () => {
+  log("DOM loaded, initializing app...");
+  
+  // Add loading overlay to prevent interactions until fully loaded
+  showLoadingOverlay();
+  
+  // Setup UI controls immediately, they'll work as soon as settings are loaded
+  setupUIControls();
+  
+  // Load everything in a single fast sequence
+  loadEverything();
+});
 
-  try {
-    // Load animations first
-    fetch("/api/listAnimations")
-      .then(r => r.json())
-      .then(data => {
-        log("Got animations: " + JSON.stringify(data));
+// Show loading overlay to prevent premature interactions
+function showLoadingOverlay() {
+  const overlay = document.createElement('div');
+  overlay.id = 'loading-overlay';
+  overlay.innerHTML = `
+    <div class="loading-container">
+      <div class="loading-spinner"></div>
+      <p>Loading LED Control Panel...</p>
+    </div>
+  `;
+  
+  // Add overlay styles
+  const style = document.createElement('style');
+  style.textContent = `
+    #loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.7);
+      z-index: 1000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: white;
+      font-size: 18px;
+    }
+    .loading-container {
+      text-align: center;
+    }
+    .loading-spinner {
+      border: 5px solid #f3f3f3;
+      border-top: 5px solid #3498db;
+      border-radius: 50%;
+      width: 50px;
+      height: 50px;
+      margin: 0 auto 20px auto;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  `;
+  
+  document.head.appendChild(style);
+  document.body.appendChild(overlay);
+}
+
+// Hide loading overlay when ready
+function hideLoadingOverlay() {
+  const overlay = document.getElementById('loading-overlay');
+  if (overlay) {
+    overlay.style.opacity = '0';
+    overlay.style.transition = 'opacity 0.5s ease';
+    setTimeout(() => {
+      if (overlay.parentNode) {
+        overlay.parentNode.removeChild(overlay);
+      }
+    }, 500);
+  }
+}
+
+// Simplified loading process - load everything at once
+function loadEverything() {
+  log("Loading system settings and controls...");
+  
+  // Load settings first
+  loadSettings(() => {
+    // Then load animations
+    loadAnimations(() => {
+      // Then load palettes last
+      loadPalettes(() => {
+        // We're finally done loading everything
+        log("Control panel ready!");
+        hideLoadingOverlay();
+      });
+    });
+  });
+}
+
+// Setup all UI controls and event listeners
+function setupUIControls() {
+  log("Setting up UI controls...");
+  
+  // Set up panel rotation controls
+  setupPanelRotationControls();
+  
+  // Set up the slider for brightness
+  const brightnessSlider = document.getElementById("sliderBrightness");
+  if (brightnessSlider) {
+    brightnessSlider.addEventListener("input", debounce(function() {
+      const value = this.value;
+      updateUIValue("numBrightness", value);
+      apiQueue.add(`/api/setBrightness?val=${value}`);
+    }, 100));
+  }
+  
+  // Set up the slider for spawn rate
+  const spawnRateSlider = document.getElementById("sliderSpawn");
+  if (spawnRateSlider) {
+    spawnRateSlider.addEventListener("input", debounce(function() {
+      const value = this.value;
+      updateUIValue("numSpawn", value);
+      apiQueue.add(`/api/setSpawnRate?val=${value}`);
+    }, 100));
+  }
+  
+  // Set up the slider for max flakes
+  const maxFlakesSlider = document.getElementById("sliderMaxFlakes");
+  if (maxFlakesSlider) {
+    maxFlakesSlider.addEventListener("input", debounce(function() {
+      const value = this.value;
+      updateUIValue("numMaxFlakes", value);
+      apiQueue.add(`/api/setMaxFlakes?val=${value}`);
+    }, 100));
+  }
+  
+  // Set up the slider for tail length
+  const tailLengthSlider = document.getElementById("sliderTail");
+  if (tailLengthSlider) {
+    tailLengthSlider.addEventListener("input", debounce(function() {
+      const value = this.value;
+      updateUIValue("numTail", value);
+      apiQueue.add(`/api/setTailLength?val=${value}`);
+    }, 100));
+  }
+  
+  // Set up the slider for fade amount
+  const fadeAmountSlider = document.getElementById("sliderFade");
+  if (fadeAmountSlider) {
+    fadeAmountSlider.addEventListener("input", debounce(function() {
+      const value = this.value;
+      updateUIValue("numFade", value);
+      apiQueue.add(`/api/setFadeAmount?val=${value}`);
+    }, 100));
+  }
+  
+  // Set up panel count slider - always default to 2
+  const panelCountSlider = document.getElementById("sliderPanelCount");
+  if (panelCountSlider) {
+    panelCountSlider.value = 2;
+    updateUIValue("numPanelCount", 2);
+    
+    panelCountSlider.addEventListener("input", debounce(function() {
+      const value = this.value;
+      updateUIValue("numPanelCount", value);
+      apiQueue.add(`/api/setPanelCount?val=${value}`);
+    }, 100));
+  }
+}
+
+// Helper function to update UI values
+function updateUIValue(targetId, value) {
+  const element = document.getElementById(targetId);
+  if (element) {
+    element.innerHTML = value;
+  }
+}
+
+/************************************************
+ * Load Animations
+ ************************************************/
+function loadAnimations(callback) {
+  log("Loading animations...");
+  
+  fetch("/api/listAnimations")
+    .then(r => r.json())
+    .then(data => {
+      log("Got animations: " + JSON.stringify(data));
+      try {
+        const sel = document.getElementById("selAnimation");
+        if (sel) {
+          // Clear dropdown first
+          sel.innerHTML = "";
+          
+          // Check if data.animations exists
+          if (!data.animations) {
+            log("ERROR: No animations array in response");
+            if (callback) callback();
+            return;
+          }
+          
+          log("Adding " + data.animations.length + " animation options...");
+          data.animations.forEach((name, i) => {
+            const opt = document.createElement("option");
+            opt.value = i;
+            opt.text = name;
+            sel.appendChild(opt);
+            log("Added animation: " + name);
+          });
+
+          // Set current selection
+          log("Setting selected animation to: " + data.current);
+          sel.value = data.current;
+
+          // Add change handler - IMPORTANT: use 'val' not 'index'
+          sel.addEventListener("change", function() {
+            const val = this.value;
+            apiQueue.add(`/api/setAnimation?val=${val}`);
+          });
+        }
+      } catch (err) {
+        log("Error populating animations: " + err.message);
+      }
+      
+      if (callback) callback();
+    })
+    .catch(err => {
+      log("Error fetching animations: " + err);
+      if (callback) callback();
+    });
+}
+
+/************************************************
+ * Load Palettes
+ ************************************************/
+function loadPalettes(callback) {
+  log("Loading palettes...");
+  
+  fetch("/api/listPalettes")
+    .then(r => r.json())
+    .then(data => {
+      if (data) {
+        log("Got palettes: " + JSON.stringify(data));
+        
         try {
-          const sel = document.getElementById("selAnimation");
+          const sel = document.getElementById("paletteSelect");
           if (sel) {
-            // Fill dropdown with animation options
+            // Clear dropdown first
             sel.innerHTML = "";
             
-            // Check if data.animations exists
-            if (!data.animations) {
-              log("ERROR: No animations array in response");
+            // Check if data.palettes exists
+            if (!data.palettes) {
+              log("ERROR: No palettes array in response");
+              if (callback) callback();
               return;
             }
             
-            log("Adding " + data.animations.length + " animation options...");
-            data.animations.forEach((name, i) => {
+            log("Adding " + data.palettes.length + " palette options...");
+            data.palettes.forEach((name, i) => {
               const opt = document.createElement("option");
               opt.value = i;
               opt.text = name;
               sel.appendChild(opt);
-              log("Added animation: " + name);
+              log("Added palette: " + name);
             });
 
             // Set current selection
-            log("Setting selected animation to: " + data.current);
+            log("Setting selected palette to: " + data.current);
             sel.value = data.current;
 
-            // Add change handler
-            sel.addEventListener("change", () => {
-              const val = sel.options[sel.selectedIndex].value;
-              apiQueue.add(`/api/setAnimation?val=${val}`, result => {
-                log("Animation set to: " + result);
-              });
+            // Add change handler - IMPORTANT: use 'val' not 'index'
+            sel.addEventListener("change", function() {
+              const val = this.value;
+              apiQueue.add(`/api/setPalette?val=${val}`);
             });
           }
         } catch (err) {
-          log("Error populating animations: " + err.message);
+          log("Error populating palettes: " + err.message);
         }
-
-        // After animations load, get palettes
-        return fetch("/api/listPalettes")
-          .then(r => r.json());
-      })
-      .then(data => {
-        if (data) {
-          log("Got palettes: " + JSON.stringify(data));
-          
-          try {
-            const sel = document.getElementById("paletteSelect");
-            if (sel) {
-              // Fill dropdown
-              sel.innerHTML = "";
-              
-              // Check if data.palettes exists
-              if (!data.palettes) {
-                log("ERROR: No palettes array in response");
-                return;
-              }
-              
-              log("Adding " + data.palettes.length + " palette options...");
-              data.palettes.forEach((name, i) => {
-                const opt = document.createElement("option");
-                opt.value = i;
-                opt.text = name;
-                sel.appendChild(opt);
-                log("Added palette: " + name);
-              });
-
-              // Set current
-              log("Setting selected palette to: " + data.current);
-              sel.value = data.current;
-
-              // Add change handler
-              sel.addEventListener("change", () => {
-                const val = sel.options[sel.selectedIndex].value;
-                apiQueue.add(`/api/setPalette?val=${val}`, result => {
-                  log("Palette set to: " + result);
-                });
-              });
-            }
-          } catch (err) {
-            log("Error populating palettes: " + err.message);
-          }
-        }
-        
-        // After palettes, let's get current configuration for all controls
-        return Promise.all([
-          fetch("/api/getBrightness").then(r => r.text()),
-          fetch("/api/getFadeAmount").then(r => r.text()),
-          fetch("/api/getTailLength").then(r => r.text()),
-          fetch("/api/getSpawnRate").then(r => r.text()),
-          fetch("/api/getMaxFlakes").then(r => r.text()),
-          fetch("/api/getSpeed").then(r => r.text()),
-          fetch("/api/getPanelCount").then(r => r.text()),
-          fetch("/api/getRotation?panel=PANEL1").then(r => r.text()),
-          fetch("/api/getRotation?panel=PANEL2").then(r => r.text()),
-          fetch("/api/getRotation?panel=PANEL3").then(r => r.text()),
-          fetch("/api/getPanelOrder").then(r => r.text())
-        ]);
-      })
-      .then(results => {
-        if (results) {
-          const [
-            brightness, 
-            fade, 
-            tail, 
-            spawn, 
-            maxFlakes, 
-            speed, 
-            panelCount,
-            rotation1,
-            rotation2,
-            rotation3,
-            panelOrder
-          ] = results;
-          
-          log("Got parameters:");
-          log(`Brightness: ${brightness}`);
-          log(`Fade: ${fade}`);
-          log(`Tail: ${tail}`);
-          log(`Spawn: ${spawn}`);
-          log(`MaxFlakes: ${maxFlakes}`);
-          log(`Speed: ${speed}`);
-          log(`Panel Count: ${panelCount}`);
-          log(`Panel 1 Rotation: ${rotation1}┬░`);
-          log(`Panel 2 Rotation: ${rotation2}┬░`);
-          log(`Panel 3 Rotation: ${rotation3}┬░`);
-          log(`Panel Order: ${panelOrder}`);
-
-          // Set UI values
-          updateUIValue("sliderBrightness", "numBrightness", brightness);
-          updateUIValue("sliderFade", "numFade", fade);
-          updateUIValue("sliderTail", "numTail", tail);
-          updateUIValue("sliderSpawn", "numSpawn", spawn);
-          updateUIValue("sliderMaxFlakes", "numMaxFlakes", maxFlakes);
-          updateSpeedUI(speed);
-          updateUIValue("sliderPanelCount", "numPanelCount", panelCount);
-          
-          // Set panel rotation dropdowns
-          if (document.getElementById("rotatePanel1")) {
-            document.getElementById("rotatePanel1").value = rotation1;
-          }
-          if (document.getElementById("rotatePanel2")) {
-            document.getElementById("rotatePanel2").value = rotation2;
-          }
-          if (document.getElementById("rotatePanel3")) {
-            document.getElementById("rotatePanel3").value = rotation3;
-          }
-          if (document.getElementById("panelOrder")) {
-            document.getElementById("panelOrder").value = panelOrder.toLowerCase();
-          }
-        }
-      })
-      .catch(err => {
-        log("Error fetching data: " + err);
-      });
-  } catch (e) {
-    log("Error in initialization: " + e.message);
-  }
-  
-  // Setup panel rotation buttons
-  setupPanelRotationControls();
-});
-
-/************************************************
- * Animations
- ************************************************/
-// On-change => set the animation
-const selAnimation = document.getElementById("selAnimation");
-if (selAnimation) {
-  selAnimation.addEventListener("change", debounce(() => {
-    apiQueue.add(`/api/setAnimation?val=${selAnimation.value}`, txt => {
-      log(txt);
+      }
+      
+      if (callback) callback();
+    })
+    .catch(err => {
+      log("Error fetching palettes: " + err);
+      if (callback) callback();
     });
-  }, 300));
 }
 
 /************************************************
- * Palettes
+ * Load Settings
  ************************************************/
-// On-change => set palette
-const paletteSelect = document.getElementById("paletteSelect");
-if (paletteSelect) {
-  paletteSelect.addEventListener("change", debounce(() => {
-    apiQueue.add(`/api/setPalette?val=${paletteSelect.value}`, txt => {
-      log(txt);
-    });
-  }, 300));
+function loadSettings(callback) {
+  log("Loading settings...");
+  
+  // Get all settings in separate requests to avoid overwhelming the ESP32
+  Promise.all([
+    fetch("/api/getBrightness").then(r => r.text()).catch(() => "32"),
+    fetch("/api/getFadeAmount").then(r => r.text()).catch(() => "39"),
+    fetch("/api/getTailLength").then(r => r.text()).catch(() => "3"),
+    fetch("/api/getSpawnRate").then(r => r.text()).catch(() => "1.0"),
+    fetch("/api/getMaxFlakes").then(r => r.text()).catch(() => "100"),
+    fetch("/api/getSpeed").then(r => r.text()).catch(() => "30"),
+    fetch("/api/getPanelCount").then(r => r.text()).catch(() => "2"),
+    fetch("/api/getRotation?panel=PANEL1").then(r => r.text()).catch(() => "90"),
+    fetch("/api/getRotation?panel=PANEL2").then(r => r.text()).catch(() => "90"),
+    fetch("/api/getRotation?panel=PANEL3").then(r => r.text()).catch(() => "90"),
+    fetch("/api/getPanelOrder").then(r => r.text()).catch(() => "normal")
+  ])
+  .then(results => {
+    const [
+      brightness, 
+      fade, 
+      tail, 
+      spawn, 
+      maxFlakes, 
+      speed, 
+      panelCount,
+      rotation1,
+      rotation2,
+      rotation3,
+      panelOrder
+    ] = results;
+    
+    log("Got parameters:");
+    log(`Brightness: ${brightness}`);
+    log(`Fade: ${fade}`);
+    log(`Tail: ${tail}`);
+    log(`Spawn: ${spawn}`);
+    log(`MaxFlakes: ${maxFlakes}`);
+    log(`Speed: ${speed}`);
+    log(`Panel Count: ${panelCount}`);
+    log(`Panel 1 Rotation: ${rotation1}°`);
+    log(`Panel 2 Rotation: ${rotation2}°`);
+    log(`Panel 3 Rotation: ${rotation3}°`);
+    log(`Panel Order: ${panelOrder}`);
+
+    // Set UI values - parse the values to handle JSON responses
+    setSliderValue("sliderBrightness", brightness, "numBrightness");
+    setSliderValue("sliderFade", fade, "numFade");
+    setSliderValue("sliderTail", tail, "numTail");
+    setSliderValue("sliderSpawn", spawn, "numSpawn");
+    setSliderValue("sliderMaxFlakes", maxFlakes, "numMaxFlakes");
+    updateSpeedUI(speed);
+    
+    // Handle panel count specially - always use 2 regardless of API response
+    const pcSlider = document.getElementById("sliderPanelCount");
+    if (pcSlider) {
+      pcSlider.value = 2;
+      updateUIValue("numPanelCount", 2);
+    }
+    
+    // Set panel rotation dropdowns
+    if (document.getElementById("rotatePanel1")) {
+      document.getElementById("rotatePanel1").value = parseValue(rotation1);
+    }
+    if (document.getElementById("rotatePanel2")) {
+      document.getElementById("rotatePanel2").value = parseValue(rotation2);
+    }
+    if (document.getElementById("rotatePanel3")) {
+      document.getElementById("rotatePanel3").value = parseValue(rotation3);
+    }
+    if (document.getElementById("panelOrder")) {
+      document.getElementById("panelOrder").value = parseValue(panelOrder).toLowerCase();
+    }
+    
+    log("UI initialization complete.");
+    
+    if (callback) callback();
+  })
+  .catch(err => {
+    log("Error loading settings: " + err);
+    if (callback) callback();
+  });
+}
+
+// Helper function to handle potential JSON responses
+function parseValue(val) {
+  if (!val) return "";
+  
+  try {
+    // If it's a JSON object with a known property, extract it
+    if (val.startsWith("{")) {
+      const obj = JSON.parse(val);
+      if (obj.panelCount !== undefined) return obj.panelCount;
+      // Add other properties as needed
+    }
+    
+    // Otherwise return as is
+    return val.replace("°", ""); // Remove degrees symbol if present
+  } catch (e) {
+    return val.replace("°", ""); // Just return the raw value without degrees
+  }
+}
+
+// Helper to set slider value and text display
+function setSliderValue(sliderId, value, textId) {
+  const slider = document.getElementById(sliderId);
+  const parsedValue = parseValue(value);
+  
+  if (slider) {
+    slider.value = parsedValue;
+  }
+  
+  updateUIValue(textId, parsedValue);
 }
 
 /************************************************
@@ -456,7 +697,7 @@ function setupPanelRotationControls() {
     btnRotatePanel1.addEventListener("click", () => {
       const angle = document.getElementById("rotatePanel1").value;
       apiQueue.add(`/api/rotatePanel1?val=${angle}`, result => {
-        log(`Panel 1 rotation set to: ${angle}┬░ - ${result}`);
+        log(`Panel 1 rotation set to: ${angle}° - ${result}`);
       });
     });
   }
@@ -467,7 +708,7 @@ function setupPanelRotationControls() {
     btnRotatePanel2.addEventListener("click", () => {
       const angle = document.getElementById("rotatePanel2").value;
       apiQueue.add(`/api/rotatePanel2?val=${angle}`, result => {
-        log(`Panel 2 rotation set to: ${angle}┬░ - ${result}`);
+        log(`Panel 2 rotation set to: ${angle}° - ${result}`);
       });
     });
   }
@@ -478,7 +719,7 @@ function setupPanelRotationControls() {
     btnRotatePanel3.addEventListener("click", () => {
       const angle = document.getElementById("rotatePanel3").value;
       apiQueue.add(`/api/rotatePanel3?val=${angle}`, result => {
-        log(`Panel 3 rotation set to: ${angle}┬░ - ${result}`);
+        log(`Panel 3 rotation set to: ${angle}° - ${result}`);
       });
     });
   }
@@ -521,6 +762,23 @@ function updateUIValue(sliderId, numberId, value) {
   const slider = document.getElementById(sliderId);
   const number = document.getElementById(numberId);
   
-  if (slider) slider.value = value;
-  if (number) number.value = value;
+  if (slider && number) {
+    // Temporarily remove event listeners by cloning the elements
+    const newSlider = slider.cloneNode(true);
+    const newNumber = number.cloneNode(true);
+    
+    // Update values without triggering events
+    newSlider.value = value;
+    newNumber.value = value;
+    
+    // Replace the original elements with the new ones
+    slider.parentNode.replaceChild(newSlider, slider);
+    number.parentNode.replaceChild(newNumber, number);
+  }
+}
+
+// Function to initialize the UI - separated to improve readability
+function initializeUI() {
+  // This function is now deprecated - we're using a staged initialization approach instead
+  log("DEPRECATED - using staged initialization instead");
 }

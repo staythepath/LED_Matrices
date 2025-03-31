@@ -10,7 +10,7 @@
 class GameOfLifeAnimation : public BaseAnimation {
 public:
     // Constructor
-    GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, int panelCount);
+    GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, int panelCount = 2);
     
     // Destructor
     virtual ~GameOfLifeAnimation();
@@ -40,53 +40,44 @@ public:
     void setPalette(const std::vector<CRGB>* palette) { _currentPalette = palette; }
 
 private:
-    // Grid dimensions
-    int _width;
-    int _height;
-    int _panelCount;
+    // Update the simulation by one generation
+    void updateGrid();
     
-    // Grid state stored as bit-packed uint8_t arrays for memory efficiency
-    // Each byte stores 8 cells, so we need (width*height*panelCount)/8 + 1 bytes
-    std::vector<uint8_t> _gridBytes;
-    std::vector<uint8_t> _nextGridBytes;
-    int _totalBytes;
+    // Draw the current grid to the LED array
+    void drawGrid();
     
-    // Animation timing
-    unsigned long _lastUpdate;
-    unsigned long _intervalMs;
-    unsigned long _generationCount;
-    unsigned long _stuckTimeout;  // Timeout for when animation gets stuck
+    // Map x,y coordinates to LED index
+    int mapXYtoLED(int x, int y);
+    
+    // Count the number of live cells
+    int countLiveCells();
+    
+    // Animation state
+    uint32_t _frameCount;       // Frame counter
+    uint32_t _intervalMs;       // Milliseconds between updates
+    uint32_t _lastUpdateTime;   // Last update timestamp
+    
+    // Grid state
+    uint8_t* _grid1;            // Current generation grid (bit-packed)
+    uint8_t* _grid2;            // Next generation grid (bit-packed)
+    int _width;                 // Grid width
+    int _height;                // Grid height
+    int _gridSizeBytes;         // Size of grid in bytes
+    
+    // Stagnation detection
+    int _stagnationCounter;     // Counter for identical generations
+    int _maxStagnation;         // Max identical generations before reset
+    int _lastCellCount;         // Previous generation cell count
     
     // Panel configuration
-    int _panelOrder;
-    int _rotationAngle1;
-    int _rotationAngle2;
-    int _rotationAngle3;
+    int _panelOrder;            // 0=left-to-right, 1=right-to-left
+    int _rotationAngle1;        // Rotation angle for panel 1 (0,90,180,270)
+    int _rotationAngle2;        // Rotation angle for panel 2
+    int _rotationAngle3;        // Rotation angle for panel 3
     
-    // Color settings
-    uint8_t _hue;
-    uint8_t _hueStep;
-    
-    // Palette support
-    const std::vector<std::vector<CRGB>>* _allPalettes;
-    const std::vector<CRGB>* _currentPalette;
-    int _currentPaletteIndex;
-    
-    // Helper methods for bit-packed grid operations
-    bool getCellState(const std::vector<uint8_t>& grid, int x, int y);
-    void setCellState(std::vector<uint8_t>& grid, int x, int y, bool state);
-    
-    // Calculate the next generation based on Game of Life rules
-    void nextGeneration();
-    
-    // Compute the index in the LED array for a given (x,y) coordinate
-    int getLedIndex(int x, int y);
-    
-    // Count live neighbors for a cell
-    int countLiveNeighbors(int x, int y);
-    
-    // Update the LED display with the current grid state
-    void updateDisplay();
+    // Color and palette
+    const std::vector<std::vector<CRGB>>* _allPalettes;  // Pointer to all palettes
+    const std::vector<CRGB>* _currentPalette;           // Current palette
 };
 
 #endif // GAMEOFLIFEANIMATION_H

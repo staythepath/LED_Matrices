@@ -15,10 +15,9 @@ public:
     /**
      * @param numLeds     - total LED count (panelCount * 16 * 16, typically)
      * @param brightness  - initial brightness
-     * @param panelCount  - how many 16x16 panels (not used specifically, 
-     *                      but included for consistent constructor signature)
+     * @param panelCount  - number of 16x16 panels (default 2)
      */
-    BlinkAnimation(uint16_t numLeds, uint8_t brightness, int panelCount=1);
+    BlinkAnimation(uint16_t numLeds, uint8_t brightness, int panelCount=2);
 
     // Required by BaseAnimation
     void begin() override;
