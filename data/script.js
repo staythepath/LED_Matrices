@@ -99,9 +99,6 @@ const apiQueue = {
 document.addEventListener("DOMContentLoaded", () => {
   log("DOM loaded, initializing app...");
   
-  // Add loading overlay to prevent interactions until fully loaded
-  showLoadingOverlay();
-  
   // Setup UI controls immediately, they'll work as soon as settings are loaded
   setupUIControls();
   
@@ -110,6 +107,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // Show loading overlay to prevent premature interactions
+/*
 function showLoadingOverlay() {
   const overlay = document.createElement('div');
   overlay.id = 'loading-overlay';
@@ -158,8 +156,10 @@ function showLoadingOverlay() {
   document.head.appendChild(style);
   document.body.appendChild(overlay);
 }
+*/
 
 // Hide loading overlay when ready
+/*
 function hideLoadingOverlay() {
   const overlay = document.getElementById('loading-overlay');
   if (overlay) {
@@ -172,24 +172,7 @@ function hideLoadingOverlay() {
     }, 500);
   }
 }
-
-// Simplified loading process - load everything at once
-function loadEverything() {
-  log("Loading system settings and controls...");
-  
-  // Load settings first
-  loadSettings(() => {
-    // Then load animations
-    loadAnimations(() => {
-      // Then load palettes last
-      loadPalettes(() => {
-        // We're finally done loading everything
-        log("Control panel ready!");
-        hideLoadingOverlay();
-      });
-    });
-  });
-}
+*/
 
 // Setup all UI controls and event listeners
 function setupUIControls() {
@@ -497,6 +480,26 @@ function setSliderValue(sliderId, value, textId) {
   }
   
   updateUIValue(textId, parsedValue);
+}
+
+/************************************************
+ * Simplified loading process - load everything at once
+ ************************************************/
+function loadEverything() {
+  log("Loading system settings and controls...");
+  
+  // Load settings first
+  loadSettings(() => {
+    // Then load animations
+    loadAnimations(() => {
+      // Then load palettes last
+      loadPalettes(() => {
+        // We're finally done loading everything
+        log("Control panel ready!");
+        // hideLoadingOverlay();
+      });
+    });
+  });
 }
 
 /************************************************

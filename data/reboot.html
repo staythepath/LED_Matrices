@@ -2,34 +2,14 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <title>Reboot Device</title>
-    <style>
-      body {
-        font-family: Arial, sans-serif;
-        margin: 20px;
-        padding: 0;
-        background: #f4f4f9;
-        color: #333;
-      }
-      h1 {
-        color: #0056b3;
-      }
-      nav {
-        margin-bottom: 20px;
-        padding: 10px;
-        background: #0056b3;
-        color: white;
-      }
-      nav a {
-        margin-right: 15px;
-        text-decoration: none;
-        color: white;
-        font-weight: bold;
-      }
-      nav a:hover {
-        text-decoration: underline;
-      }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LED Matrix Reboot</title>
+    <!-- Force cache refresh -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <!-- External CSS -->
+    <link rel="stylesheet" href="/css/styles.css">
   </head>
   <body>
     <nav>
@@ -37,23 +17,85 @@
       <a href="/status">Status</a>
       <a href="/update">Update Firmware</a>
       <a href="/updatefs">Update SPIFFS</a>
-      <a href="/reboot">Reboot</a>
+      <a href="/reboot" class="active">Reboot</a>
       <a href="/control">Control Panel</a>
+      <a href="/logs">System Logs</a>
     </nav>
-    <h1>Reboot Device</h1>
-    <p>Click the button below to reboot immediately.</p>
-    <button id="rebootBtn">Reboot Now</button>
+
+    <div class="container">
+      <div class="card">
+        <h1>Reboot ESP32 Controller</h1>
+        <p>Use this page to safely reboot the LED Matrix Controller</p>
+        
+        <div class="card">
+          <h2>System Controls</h2>
+          <p>Click the button below to reboot the device. The controller will restart and be unavailable for approximately 10-15 seconds.</p>
+          
+          <div id="rebootSection">
+            <button id="btnReboot" style="background: #ef4444; margin-top: 1rem;">Reboot Controller</button>
+          </div>
+          
+          <div id="rebootStatus" style="margin-top: 1.5rem; display: none;">
+            <div class="card" style="background: rgba(0,0,0,0.3);">
+              <h3>Rebooting...</h3>
+              <p>The device is now rebooting. Please wait approximately 15 seconds before attempting to reconnect.</p>
+              <p>You will be redirected to the home page automatically once the system is back online.</p>
+              <div id="countdown" style="font-size: 2rem; text-align: center; margin: 1rem 0; color: var(--primary);"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <script>
-      document
-        .getElementById("rebootBtn")
-        .addEventListener("click", function () {
-          fetch("/rebootNow")
-            .then((response) => response.text())
-            .then((text) => {
-              alert(text);
-            });
+      document.addEventListener('DOMContentLoaded', function() {
+        const btnReboot = document.getElementById('btnReboot');
+        const rebootSection = document.getElementById('rebootSection');
+        const rebootStatus = document.getElementById('rebootStatus');
+        const countdown = document.getElementById('countdown');
+        
+        btnReboot.addEventListener('click', function() {
+          if (confirm('Are you sure you want to reboot the ESP32?')) {
+            // Show rebooting status
+            rebootSection.style.display = 'none';
+            rebootStatus.style.display = 'block';
+            
+            // Send reboot command
+            fetch('/api/reboot')
+              .catch(error => console.error('Error sending reboot command:', error));
+            
+            // Set countdown timer (15 seconds)
+            let seconds = 15;
+            countdown.textContent = seconds;
+            
+            const timer = setInterval(function() {
+              seconds--;
+              countdown.textContent = seconds;
+              
+              if (seconds <= 0) {
+                clearInterval(timer);
+                checkConnection();
+              }
+            }, 1000);
+          }
         });
+        
+        // Check if the ESP32 is back online
+        function checkConnection() {
+          const checkInterval = setInterval(function() {
+            fetch('/')
+              .then(response => {
+                if (response.ok) {
+                  clearInterval(checkInterval);
+                  window.location.href = '/';
+                }
+              })
+              .catch(error => {
+                console.log('Still reconnecting...');
+              });
+          }, 1000);
+        }
+      });
     </script>
   </body>
 </html>

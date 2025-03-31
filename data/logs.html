@@ -2,98 +2,14 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <title>System Logs</title>
-    <style>
-      body {
-        font-family: Arial, sans-serif;
-        margin: 20px;
-        padding: 0;
-        background: #f4f4f9;
-        color: #333;
-      }
-      h1 {
-        color: #0056b3;
-      }
-      nav {
-        margin-bottom: 20px;
-        padding: 10px;
-        background: #0056b3;
-        color: white;
-      }
-      nav a {
-        margin-right: 15px;
-        text-decoration: none;
-        color: white;
-        font-weight: bold;
-      }
-      nav a:hover {
-        text-decoration: underline;
-      }
-      .log-container {
-        background: #fff;
-        padding: 15px;
-        margin-bottom: 20px;
-        border-radius: 8px;
-        box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
-        height: 500px;
-        overflow-y: auto;
-        font-family: monospace;
-        white-space: pre-wrap;
-        font-size: 12px;
-      }
-      .log-entry {
-        margin: 2px 0;
-        padding: 2px 5px;
-        border-bottom: 1px solid #eee;
-      }
-      .log-debug {
-        color: #888;
-      }
-      .log-info {
-        color: #333;
-      }
-      .log-warning {
-        color: #f0ad4e;
-      }
-      .log-error {
-        color: #d9534f;
-        font-weight: bold;
-      }
-      .log-critical {
-        color: #d9534f;
-        background-color: #ffe6e6;
-        font-weight: bold;
-      }
-      .button-container {
-        margin: 10px 0;
-      }
-      button {
-        background: #0056b3;
-        color: white;
-        border: none;
-        padding: 8px 15px;
-        margin-right: 10px;
-        border-radius: 4px;
-        cursor: pointer;
-      }
-      button:hover {
-        background: #003d7e;
-      }
-      .filter-container {
-        margin-bottom: 10px;
-      }
-      select {
-        padding: 5px;
-        border-radius: 4px;
-        border: 1px solid #ccc;
-      }
-      footer {
-        margin-top: 20px;
-        text-align: center;
-        font-size: 0.8em;
-        color: #555;
-      }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LED Matrix System Logs</title>
+    <!-- Force cache refresh -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <!-- External CSS -->
+    <link rel="stylesheet" href="/css/styles.css">
   </head>
   <body>
     <nav>
@@ -103,144 +19,84 @@
       <a href="/updatefs">Update SPIFFS</a>
       <a href="/reboot">Reboot</a>
       <a href="/control">Control Panel</a>
-      <a href="/logs">System Logs</a>
+      <a href="/logs" class="active">System Logs</a>
     </nav>
-
-    <h1>System Logs</h1>
     
-    <div class="filter-container">
-      <label for="logLevel">Filter Level: </label>
-      <select id="logLevel">
-        <option value="debug">Debug & Above</option>
-        <option value="info" selected>Info & Above</option>
-        <option value="warning">Warning & Above</option>
-        <option value="error">Error & Above</option>
-        <option value="critical">Critical Only</option>
-      </select>
-      <button id="btnApplyFilter">Apply Filter</button>
+    <div class="container">
+      <div class="card">
+        <h1>System Logs</h1>
+        <p>Real-time logs from the LED Matrix Controller</p>
+        
+        <div class="card">
+          <div class="dropdown-container">
+            <label for="logLevel">Log Level:</label>
+            <select id="logLevel">
+              <option value="verbose">Verbose</option>
+              <option value="debug">Debug</option>
+              <option value="info" selected>Info</option>
+              <option value="warning">Warning</option>
+              <option value="error">Error</option>
+            </select>
+            <button id="btnApplyLogLevel">Apply</button>
+            <button id="btnClearLogs">Clear Logs</button>
+          </div>
+          
+          <div id="logs" class="log-container"></div>
+        </div>
+      </div>
     </div>
-    
-    <div class="button-container">
-      <button id="btnRefresh">Refresh Logs</button>
-      <button id="btnDownload">Download Logs</button>
-      <button id="btnClear">Clear Logs</button>
-    </div>
-    
-    <div id="logsContainer" class="log-container">
-      <div class="log-info">Loading logs...</div>
-    </div>
-    
-    <footer>&copy; 2024 ESP32 Controller</footer>
     
     <script>
-      // DOM elements
-      const logsContainer = document.getElementById('logsContainer');
-      const btnRefresh = document.getElementById('btnRefresh');
-      const btnDownload = document.getElementById('btnDownload');
-      const btnClear = document.getElementById('btnClear');
-      const logLevel = document.getElementById('logLevel');
-      const btnApplyFilter = document.getElementById('btnApplyFilter');
-      
-      // Current filter level
-      let currentLevel = 'info';
-      
-      // Load logs on page load
-      document.addEventListener('DOMContentLoaded', () => {
-        loadLogs();
-      });
-      
-      // Event listeners
-      btnRefresh.addEventListener('click', loadLogs);
-      btnDownload.addEventListener('click', downloadLogs);
-      btnClear.addEventListener('click', clearLogs);
-      btnApplyFilter.addEventListener('click', () => {
-        currentLevel = logLevel.value;
-        loadLogs();
-      });
-      
-      // Load logs from server
-      function loadLogs() {
-        logsContainer.innerHTML = '<div class="log-info">Loading logs...</div>';
+      document.addEventListener('DOMContentLoaded', function() {
+        const logs = document.getElementById('logs');
+        const btnClearLogs = document.getElementById('btnClearLogs');
+        const btnApplyLogLevel = document.getElementById('btnApplyLogLevel');
+        const logLevel = document.getElementById('logLevel');
         
-        fetch(`/api/getLogs?level=${currentLevel}`)
-          .then(response => response.text())
-          .then(logs => {
-            // Parse and format logs
-            const lines = logs.split('\n');
-            if (lines.length === 0 || (lines.length === 1 && lines[0].trim() === '')) {
-              logsContainer.innerHTML = '<div class="log-info">No logs available</div>';
-              return;
-            }
-            
-            logsContainer.innerHTML = '';
-            
-            lines.forEach(line => {
-              if (line.trim() === '') return;
-              
-              // Create log entry element
-              const entry = document.createElement('div');
-              entry.className = 'log-entry';
-              
-              // Check if it contains level indicator
-              if (line.includes('[DEBUG]')) {
-                entry.className += ' log-debug';
-              } else if (line.includes('[INFO]')) {
-                entry.className += ' log-info';
-              } else if (line.includes('[WARNING]')) {
-                entry.className += ' log-warning';
-              } else if (line.includes('[ERROR]')) {
-                entry.className += ' log-error';
-              } else if (line.includes('[CRITICAL]')) {
-                entry.className += ' log-critical';
-              }
-              
-              entry.textContent = line;
-              logsContainer.appendChild(entry);
-            });
-            
-            // Scroll to bottom
-            logsContainer.scrollTop = logsContainer.scrollHeight;
-          })
-          .catch(error => {
-            logsContainer.innerHTML = `<div class="log-error">Error loading logs: ${error}</div>`;
-          });
-      }
-      
-      // Download logs as text file
-      function downloadLogs() {
-        fetch(`/api/getLogs?level=debug`)
-          .then(response => response.text())
-          .then(logs => {
-            // Create blob and download
-            const blob = new Blob([logs], { type: 'text/plain' });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `esp32_logs_${new Date().toISOString().replace(/:/g, '-')}.txt`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            a.remove();
-          })
-          .catch(error => {
-            alert(`Error downloading logs: ${error}`);
-          });
-      }
-      
-      // Clear logs
-      function clearLogs() {
-        if (confirm('Are you sure you want to clear all logs? This cannot be undone.')) {
-          fetch('/api/clearLogs')
+        // WebSocket connection to receive logs
+        let socket;
+        
+        function connectWebSocket() {
+          socket = new WebSocket(`ws://${window.location.hostname}/ws`);
+          
+          socket.onopen = function() {
+            logs.innerHTML += "<span style='color: var(--primary);'>WebSocket connection established</span><br>";
+          };
+          
+          socket.onmessage = function(event) {
+            logs.innerHTML += event.data + "<br>";
+            logs.scrollTop = logs.scrollHeight;
+          };
+          
+          socket.onclose = function() {
+            logs.innerHTML += "<span style='color: #f87171;'>WebSocket connection closed. Reconnecting in 5 seconds...</span><br>";
+            setTimeout(connectWebSocket, 5000);
+          };
+          
+          socket.onerror = function() {
+            logs.innerHTML += "<span style='color: #f87171;'>WebSocket error occurred</span><br>";
+          };
+        }
+        
+        btnClearLogs.addEventListener('click', function() {
+          logs.innerHTML = "<span style='color: var(--primary);'>Logs cleared</span><br>";
+        });
+        
+        btnApplyLogLevel.addEventListener('click', function() {
+          const selectedLevel = logLevel.value;
+          fetch(`/api/setLogLevel?level=${selectedLevel}`)
             .then(response => response.text())
-            .then(result => {
-              alert(result);
-              loadLogs();
+            .then(text => {
+              logs.innerHTML += `<span style='color: var(--primary);'>Log level set to ${selectedLevel}</span><br>`;
             })
             .catch(error => {
-              alert(`Error clearing logs: ${error}`);
+              logs.innerHTML += `<span style='color: #f87171;'>Error setting log level: ${error.message}</span><br>`;
             });
-        }
-      }
+        });
+        
+        // Initial connection
+        connectWebSocket();
+      });
     </script>
   </body>
 </html>

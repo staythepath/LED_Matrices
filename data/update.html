@@ -2,42 +2,80 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <title>Firmware Update</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LED Matrix Firmware Update</title>
+    <!-- Force cache refresh -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <!-- External CSS -->
+    <link rel="stylesheet" href="/css/styles.css">
     <style>
-      body {
-        font-family: Arial, sans-serif;
-        margin: 20px;
-        padding: 0;
-        background: #f4f4f9;
-        color: #333;
+      .upload-form {
+        margin: 1.5rem 0;
       }
-      h1 {
-        color: #0056b3;
+      
+      .file-input-container {
+        margin-bottom: 1rem;
       }
-      nav {
-        margin-bottom: 20px;
-        padding: 10px;
-        background: #0056b3;
-        color: white;
+      
+      .file-input-container label {
+        display: block;
+        margin-bottom: 0.5rem;
+        color: var(--secondary);
       }
-      nav a {
-        margin-right: 15px;
-        text-decoration: none;
-        color: white;
-        font-weight: bold;
+      
+      .custom-file-input {
+        position: relative;
+        display: inline-block;
+        width: 100%;
       }
-      nav a:hover {
-        text-decoration: underline;
+      
+      .custom-file-input input[type="file"] {
+        opacity: 0;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        cursor: pointer;
       }
-      input[type="file"],
-      input[type="submit"] {
-        padding: 10px;
-        margin: 10px 0;
+      
+      .file-name-display {
+        display: block;
+        padding: 0.75rem;
+        background: var(--input-bg);
+        border: 1px solid var(--input-border);
+        border-radius: 0.375rem;
+        color: var(--on-surface);
+        cursor: pointer;
+        margin-bottom: 1rem;
       }
+      
       progress {
         width: 100%;
-        height: 20px;
-        margin-top: 10px;
+        height: 10px;
+        border-radius: 5px;
+        margin: 1rem 0;
+        -webkit-appearance: none;
+        appearance: none;
+      }
+      
+      progress::-webkit-progress-bar {
+        background-color: var(--input-bg);
+        border-radius: 5px;
+      }
+      
+      progress::-webkit-progress-value {
+        background-color: var(--primary);
+        border-radius: 5px;
+      }
+      
+      .status-text {
+        margin-top: 1rem;
+        padding: 0.75rem;
+        border-radius: 0.375rem;
+        background: rgba(0,0,0,0.2);
       }
     </style>
   </head>
@@ -45,57 +83,133 @@
     <nav>
       <a href="/">Home</a>
       <a href="/status">Status</a>
-      <a href="/update">Update Firmware</a>
+      <a href="/update" class="active">Update Firmware</a>
       <a href="/updatefs">Update SPIFFS</a>
       <a href="/reboot">Reboot</a>
       <a href="/control">Control Panel</a>
+      <a href="/logs">System Logs</a>
     </nav>
-    <h1>Firmware Update</h1>
-    <form
-      method="POST"
-      enctype="multipart/form-data"
-      action="/update"
-      id="uploadForm"
-    >
-      <input type="file" name="update" id="fileInput" />
-      <input type="submit" value="Upload Firmware" />
-    </form>
-    <progress id="progressBar" value="0" max="100"></progress>
-    <p id="statusText">Waiting for upload...</p>
+
+    <div class="container">
+      <div class="card">
+        <h1>Firmware Update</h1>
+        <p>Upload new firmware to the LED Matrix Controller</p>
+        
+        <div class="card">
+          <h2>Upload Firmware</h2>
+          <p>Select a .bin file to update the device firmware. The device will reboot automatically after a successful update.</p>
+          
+          <div class="upload-form">
+            <form method="POST" enctype="multipart/form-data" action="/update" id="uploadForm">
+              <div class="file-input-container">
+                <label for="fileInput">Select Firmware File:</label>
+                <div class="custom-file-input">
+                  <div class="file-name-display" id="fileNameDisplay">No file selected</div>
+                  <input type="file" name="update" id="fileInput" accept=".bin" />
+                </div>
+              </div>
+              
+              <button type="submit" id="uploadButton">Upload Firmware</button>
+            </form>
+          </div>
+          
+          <progress id="progressBar" value="0" max="100" style="display: none;"></progress>
+          
+          <div class="status-text" id="statusText">
+            Waiting for file selection...
+          </div>
+        </div>
+      </div>
+    </div>
 
     <script>
-      document.getElementById("uploadForm").onsubmit = function (e) {
-        const fileInput = document.getElementById("fileInput");
-        const progressBar = document.getElementById("progressBar");
-        const statusText = document.getElementById("statusText");
-
-        if (!fileInput.files.length) {
-          alert("Please select a file first!");
-          return false;
-        }
-
-        const xhr = new XMLHttpRequest();
-        xhr.upload.onprogress = function (event) {
-          if (event.lengthComputable) {
-            const percent = Math.round((event.loaded / event.total) * 100);
-            progressBar.value = percent;
-            statusText.innerText = "Uploading... " + percent + "%";
-          }
-        };
-        xhr.onload = function () {
-          if (xhr.status === 200) {
-            statusText.innerText = "Update Successful! Rebooting...";
+      document.addEventListener('DOMContentLoaded', function() {
+        const uploadForm = document.getElementById('uploadForm');
+        const fileInput = document.getElementById('fileInput');
+        const fileNameDisplay = document.getElementById('fileNameDisplay');
+        const progressBar = document.getElementById('progressBar');
+        const statusText = document.getElementById('statusText');
+        const uploadButton = document.getElementById('uploadButton');
+        
+        // Update file name display when a file is selected
+        fileInput.addEventListener('change', function() {
+          if (fileInput.files.length) {
+            fileNameDisplay.textContent = fileInput.files[0].name;
+            statusText.textContent = "File selected: " + fileInput.files[0].name;
+            uploadButton.disabled = false;
           } else {
-            statusText.innerText = "Update Failed!";
+            fileNameDisplay.textContent = "No file selected";
+            statusText.textContent = "Waiting for file selection...";
+            uploadButton.disabled = true;
           }
+        });
+        
+        // Handle form submission
+        uploadForm.onsubmit = function(e) {
+          e.preventDefault();
+          
+          if (!fileInput.files.length) {
+            statusText.textContent = "Please select a file first!";
+            return false;
+          }
+          
+          // Show progress bar
+          progressBar.style.display = 'block';
+          uploadButton.disabled = true;
+          
+          const xhr = new XMLHttpRequest();
+          
+          xhr.upload.onprogress = function(event) {
+            if (event.lengthComputable) {
+              const percent = Math.round((event.loaded / event.total) * 100);
+              progressBar.value = percent;
+              statusText.textContent = "Uploading... " + percent + "%";
+            }
+          };
+          
+          xhr.onload = function() {
+            if (xhr.status === 200) {
+              statusText.textContent = "Update Successful! Rebooting...";
+              statusText.style.color = "var(--primary)";
+              
+              // Redirect to home page after a delay
+              setTimeout(function() {
+                statusText.textContent = "Attempting to reconnect...";
+                checkConnection();
+              }, 5000);
+            } else {
+              statusText.textContent = "Update Failed! Error: " + xhr.statusText;
+              statusText.style.color = "#f87171";
+              uploadButton.disabled = false;
+            }
+          };
+          
+          xhr.onerror = function() {
+            statusText.textContent = "Error during upload. Please try again.";
+            statusText.style.color = "#f87171";
+            uploadButton.disabled = false;
+          };
+          
+          xhr.open("POST", "/update");
+          xhr.send(new FormData(uploadForm));
         };
-        xhr.onerror = function () {
-          statusText.innerText = "Error during upload.";
-        };
-        xhr.open("POST", "/update");
-        xhr.send(new FormData(document.getElementById("uploadForm")));
-        e.preventDefault();
-      };
+        
+        // Function to check connection after reboot
+        function checkConnection() {
+          const checkInterval = setInterval(function() {
+            fetch('/')
+              .then(response => {
+                if (response.ok) {
+                  clearInterval(checkInterval);
+                  window.location.href = '/';
+                }
+              })
+              .catch(error => {
+                statusText.textContent = "Device is rebooting, please wait...";
+              });
+          }, 2000);
+        }
+      });
     </script>
   </body>
 </html>

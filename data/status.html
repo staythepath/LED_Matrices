@@ -2,53 +2,113 @@
 <html>
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Device Status</title>
-    <style>
-      body {
-        font-family: Arial, sans-serif;
-        margin: 20px;
-        padding: 0;
-        background: #f4f4f9;
-        color: #333;
-      }
-      h1 {
-        color: #0056b3;
-      }
-      nav {
-        margin-bottom: 20px;
-        padding: 10px;
-        background: #0056b3;
-        color: white;
-      }
-      nav a {
-        margin-right: 15px;
-        text-decoration: none;
-        color: white;
-        font-weight: bold;
-      }
-      nav a:hover {
-        text-decoration: underline;
-      }
-      footer {
-        margin-top: 20px;
-        text-align: center;
-        font-size: 0.8em;
-        color: #555;
-      }
-    </style>
+    <!-- Force cache refresh -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <!-- External CSS -->
+    <link rel="stylesheet" href="/css/styles.css">
   </head>
   <body>
     <nav>
       <a href="/">Home</a>
-      <a href="/status">Status</a>
+      <a href="/status" class="active">Status</a>
       <a href="/update">Update Firmware</a>
       <a href="/updatefs">Update SPIFFS</a>
       <a href="/reboot">Reboot</a>
       <a href="/control">Control Panel</a>
+      <a href="/logs">System Logs</a>
     </nav>
-    <h1>Device Status</h1>
-    <p>Wi-Fi: Connected</p>
-    <p>IP Address: TBD if you want it dynamic</p>
-    <footer>&copy; 2024 ESP32 Controller</footer>
+
+    <div class="container">
+      <div class="card">
+        <h1>Device Status</h1>
+        <p>Current system status and information for the Device</p>
+        
+        <div class="card">
+          <h2>Network Information</h2>
+          <div class="grid-layout">
+            <div class="card">
+              <h3>Wi-Fi</h3>
+              <div id="wifiStatus">
+                <p><strong>Status:</strong> <span id="connectionStatus">Connected</span></p>
+                <p><strong>Network:</strong> <span id="networkName">TBD if you want it dynamic</span></p>
+                <p><strong>Signal Strength:</strong> <span id="signalStrength">TBD if you want it dynamic</span></p>
+              </div>
+            </div>
+            
+            <div class="card">
+              <h3>IP Configuration</h3>
+              <div id="ipConfig">
+                <p><strong>IP Address:</strong> <span id="ipAddress">TBD if you want it dynamic</span></p>
+                <p><strong>Subnet Mask:</strong> <span id="subnetMask">TBD if you want it dynamic</span></p>
+                <p><strong>Gateway:</strong> <span id="gateway">TBD if you want it dynamic</span></p>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="card">
+          <h2>System Information</h2>
+          <div class="grid-layout">
+            <div class="card">
+              <h3>Hardware</h3>
+              <p><strong>Device:</strong> ESP32</p>
+              <p><strong>Uptime:</strong> <span id="uptime">TBD if you want it dynamic</span></p>
+              <p><strong>Free Memory:</strong> <span id="freeMemory">TBD if you want it dynamic</span></p>
+            </div>
+            
+            <div class="card">
+              <h3>Firmware</h3>
+              <p><strong>Version:</strong> <span id="firmwareVersion">TBD if you want it dynamic</span></p>
+              <p><strong>Build Date:</strong> <span id="buildDate">TBD if you want it dynamic</span></p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      document.addEventListener('DOMContentLoaded', function() {
+        // Function to fetch status data
+        function fetchStatus() {
+          fetch('/api/status')
+            .then(response => response.json())
+            .then(data => {
+              // Update network information
+              document.getElementById('connectionStatus').textContent = data.wifi.connected ? 'Connected' : 'Disconnected';
+              document.getElementById('networkName').textContent = data.wifi.ssid || 'N/A';
+              document.getElementById('signalStrength').textContent = data.wifi.rssi ? data.wifi.rssi + ' dBm' : 'N/A';
+              
+              // Update IP configuration
+              document.getElementById('ipAddress').textContent = data.network.ip || 'N/A';
+              document.getElementById('subnetMask').textContent = data.network.subnet || 'N/A';
+              document.getElementById('gateway').textContent = data.network.gateway || 'N/A';
+              
+              // Update system information
+              document.getElementById('uptime').textContent = data.system.uptime || 'N/A';
+              document.getElementById('freeMemory').textContent = data.system.freeMemory ? data.system.freeMemory + ' bytes' : 'N/A';
+              document.getElementById('firmwareVersion').textContent = data.system.version || 'N/A';
+              document.getElementById('buildDate').textContent = data.system.buildDate || 'N/A';
+            })
+            .catch(error => {
+              console.error('Error fetching status:', error);
+              // Set error message if fetch fails
+              document.querySelectorAll('span[id]').forEach(element => {
+                element.textContent = 'Error loading data';
+                element.style.color = '#f87171';
+              });
+            });
+        }
+        
+        // Initial fetch
+        fetchStatus();
+        
+        // Refresh status every 10 seconds
+        setInterval(fetchStatus, 10000);
+      });
+    </script>
   </body>
 </html>

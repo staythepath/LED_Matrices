@@ -2,87 +2,48 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <title>ESP32 Controller</title>
-    <style>
-      /* Updated CSS for dark mode and improved UI */
-      body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        margin: 20px;
-        padding: 0;
-        background: #121212;
-        color: #E0E0E0;
-      }
-
-      h1 {
-        color: #1E90FF;
-      }
-
-      nav {
-        margin-bottom: 20px;
-        padding: 10px;
-        background: #1F1F1F;
-        color: #E0E0E0;
-      }
-
-      nav a {
-        margin-right: 15px;
-        text-decoration: none;
-        color: #E0E0E0;
-        font-weight: bold;
-      }
-
-      nav a:hover {
-        text-decoration: underline;
-      }
-
-      footer {
-        margin-top: 20px;
-        text-align: center;
-        font-size: 0.8em;
-        color: #888;
-      }
-
-      /* New style for resizable log box */
-      .log-box {
-        width: 100%;
-        min-height: 200px;
-        height: 300px;
-        resize: vertical;
-        overflow: auto;
-        background: #1e1e1e;
-        border: 1px solid #333;
-        padding: 10px;
-        box-sizing: border-box;
-      }
-
-      /* Style for progress bars (e.g., firmware and SPIFFS upload) */
-      .progress-bar {
-        max-width: 400px;
-        width: 100%;
-        margin: 10px auto;
-        display: block;
-      }
-
-      /* Optional container for page content */
-      .container {
-        max-width: 800px;
-        margin: auto;
-        padding: 20px;
-      }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 LED Matrix Controller</title>
+    <!-- Force cache refresh -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <!-- External CSS -->
+    <link rel="stylesheet" href="/css/styles.css">
   </head>
   <body>
     <nav>
-      <a href="/">Home</a>
+      <a href="/" class="active">Home</a>
       <a href="/status">Status</a>
       <a href="/update">Update Firmware</a>
       <a href="/updatefs">Update SPIFFS</a>
       <a href="/reboot">Reboot</a>
       <a href="/control">Control Panel</a>
+      <a href="/logs">System Logs</a>
     </nav>
 
-    <h1>ESP32 Controller</h1>
-    <p>Welcome to the ESP32 Web Interface.</p>
-    <footer>&copy; 2024 ESP32 Controller</footer>
+    <div class="container">
+      <div class="card">
+        <h1>ESP32 LED Matrix Controller</h1>
+        <p>Welcome to the ESP32 LED Matrix Controller interface.</p>
+        <p>Use the navigation menu to access different features:</p>
+        
+        <div class="grid-layout" style="margin-top: 20px;">
+          <a href="/control" class="feature-card" style="text-decoration: none; display: block; background: rgba(255,255,255,0.05); padding: 20px; border-radius: 8px; transition: all 0.2s;">
+            <h3>Control Panel</h3>
+            <p>Manage LED animations and settings</p>
+          </a>
+          <a href="/logs" class="feature-card" style="text-decoration: none; display: block; background: rgba(255,255,255,0.05); padding: 20px; border-radius: 8px; transition: all 0.2s;">
+            <h3>System Logs</h3>
+            <p>View operational logs and diagnostics</p>
+          </a>
+          <a href="/update" class="feature-card" style="text-decoration: none; display: block; background: rgba(255,255,255,0.05); padding: 20px; border-radius: 8px; transition: all 0.2s;">
+            <h3>Update Firmware</h3>
+            <p>Upload new firmware to the device</p>
+          </a>
+        </div>
+        <footer>&copy; 2024 ESP32 Controller</footer>
+      </div>
+    </div>
   </body>
 </html>
