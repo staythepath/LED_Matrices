@@ -18,8 +18,11 @@ GameOfLifeAnimation::GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, i
       _lastUpdateTime(0),
       _grid1(nullptr),
       _grid2(nullptr),
+      _colorMap(nullptr),
       _width(0),
       _height(0),
+      _gridSizeBytes(0),
+      _gridSize(0),
       _stagnationCounter(0),
       _maxStagnation(100), // Reset after 100 identical generations
       _lastCellCount(0),
@@ -28,7 +31,8 @@ GameOfLifeAnimation::GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, i
       _rotationAngle2(0),
       _rotationAngle3(0),
       _currentPalette(nullptr),
-      _allPalettes(nullptr)
+      _allPalettes(nullptr),
+      _usePalette(true)
 {
     // Calculate dimensions based on panel count (assuming square panels)
     _width = 16;  // Default width for one panel
@@ -42,20 +46,28 @@ GameOfLifeAnimation::GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, i
     
     // Calculate grid size in bytes (each byte stores 8 cells)
     _gridSizeBytes = (_width * _height + 7) / 8;
+    _gridSize = _width * _height;
     
     // Allocate memory for grids (bit-packed for efficiency)
     try {
         _grid1 = new uint8_t[_gridSizeBytes];
         _grid2 = new uint8_t[_gridSizeBytes];
+        _colorMap = new CRGB[_gridSize];
         
         // Initialize grids to all zeros
         memset(_grid1, 0, _gridSizeBytes);
         memset(_grid2, 0, _gridSizeBytes);
+        
+        // Initialize color map to black
+        for (int i = 0; i < _gridSize; i++) {
+            _colorMap[i] = CRGB::Black;
+        }
     } catch (std::bad_alloc& e) {
         // Handle memory allocation failure
-        Serial.println("GameOfLife: Failed to allocate memory for grids");
+        Serial.println("GameOfLife: Failed to allocate memory for grids or color map");
         _grid1 = nullptr;
         _grid2 = nullptr;
+        _colorMap = nullptr;
     }
 }
 
@@ -69,18 +81,26 @@ GameOfLifeAnimation::~GameOfLifeAnimation() {
         delete[] _grid2;
         _grid2 = nullptr;
     }
+    if (_colorMap) {
+        delete[] _colorMap;
+        _colorMap = nullptr;
+    }
 }
 
 // Initialize the animation
 void GameOfLifeAnimation::begin() {
-    if (!_grid1 || !_grid2) {
+    if (!_grid1 || !_grid2 || !_colorMap) {
         Serial.println("GameOfLife: Grids not initialized, attempting to allocate memory...");
         try {
             if (!_grid1) _grid1 = new uint8_t[_gridSizeBytes];
             if (!_grid2) _grid2 = new uint8_t[_gridSizeBytes];
+            if (!_colorMap) _colorMap = new CRGB[_gridSize];
             
             memset(_grid1, 0, _gridSizeBytes);
             memset(_grid2, 0, _gridSizeBytes);
+            for (int i = 0; i < _gridSize; i++) {
+                _colorMap[i] = CRGB::Black;
+            }
         } catch (std::bad_alloc& e) {
             Serial.println("GameOfLife: Failed to allocate memory in begin()");
             return;
@@ -98,7 +118,7 @@ void GameOfLifeAnimation::begin() {
 
 // Update animation frame
 void GameOfLifeAnimation::update() {
-    if (!_grid1 || !_grid2) {
+    if (!_grid1 || !_grid2 || !_colorMap) {
         // Safety check - if grids aren't allocated, try to allocate them again
         begin();
         return;
@@ -158,7 +178,7 @@ void GameOfLifeAnimation::update() {
 
 // Randomize the grid with a given density (0-100%)
 void GameOfLifeAnimation::randomize(uint8_t density) {
-    if (!_grid1) return;
+    if (!_grid1 || !_colorMap) return;
     
     // Reset the simulation state
     memset(_grid1, 0, _gridSizeBytes);
@@ -171,22 +191,20 @@ void GameOfLifeAnimation::randomize(uint8_t density) {
                 int byteIndex = (y * _width + x) / 8;
                 int bitIndex = (y * _width + x) % 8;
                 _grid1[byteIndex] |= (1 << bitIndex);
+                
+                // Assign random color from palette
+                if (_usePalette && _currentPalette && !_currentPalette->empty()) {
+                    int colorIndex = random(_currentPalette->size());
+                    _colorMap[y * _width + x] = (*_currentPalette)[colorIndex];
+                } else {
+                    // Fallback to random color if no palette
+                    _colorMap[y * _width + x] = CRGB(random(256), random(256), random(256));
+                }
+            } else {
+                // Ensure dead cells have black color
+                _colorMap[y * _width + x] = CRGB::Black;
             }
         }
-    }
-}
-
-// Set a predefined pattern (future feature)
-void GameOfLifeAnimation::setPattern(int patternId) {
-    // Clear the grid
-    memset(_grid1, 0, _gridSizeBytes);
-    
-    // For now, just randomize with different densities
-    switch (patternId) {
-        case 0: randomize(20); break; // Sparse
-        case 1: randomize(33); break; // Medium (default)
-        case 2: randomize(50); break; // Dense
-        default: randomize(33);
     }
 }
 
@@ -232,9 +250,25 @@ void GameOfLifeAnimation::updateGrid() {
             if (isAlive) {
                 // Live cell with 2 or 3 neighbors survives
                 willBeAlive = (neighbors == 2 || neighbors == 3);
+                
+                // Keep the same color if the cell survives
+                if (willBeAlive) {
+                    _colorMap[y * _width + x] = _colorMap[y * _width + x];
+                }
             } else {
                 // Dead cell with exactly 3 neighbors becomes alive
                 willBeAlive = (neighbors == 3);
+                
+                // Assign new color if the cell becomes alive
+                if (willBeAlive) {
+                    if (_usePalette && _currentPalette && !_currentPalette->empty()) {
+                        int colorIndex = random(_currentPalette->size());
+                        _colorMap[y * _width + x] = (*_currentPalette)[colorIndex];
+                    } else {
+                        // Fallback to random color if no palette
+                        _colorMap[y * _width + x] = CRGB(random(256), random(256), random(256));
+                    }
+                }
             }
             
             // Set the cell's state in the next generation
@@ -242,6 +276,8 @@ void GameOfLifeAnimation::updateGrid() {
                 _grid2[cellIndex] |= (1 << cellBit);  // Set bit to 1
             } else {
                 _grid2[cellIndex] &= ~(1 << cellBit); // Set bit to 0
+                // Dead cells should have black color
+                _colorMap[y * _width + x] = CRGB::Black;
             }
         }
     }
@@ -254,22 +290,14 @@ void GameOfLifeAnimation::updateGrid() {
 
 // Draw the current grid to the LED array
 void GameOfLifeAnimation::drawGrid() {
-    if (!_grid1) return;
-    
-    // Use color palette if available
-    CRGB aliveColor = CRGB::Green; // Default live cell color
-    
-    if (_currentPalette && !_currentPalette->empty()) {
-        // Use first color from current palette
-        aliveColor = (*_currentPalette)[0];
-    }
+    if (!_grid1 || !_colorMap) return;
     
     // Clear all LEDs first
     for (int i = 0; i < _numLeds; i++) {
         leds[i] = CRGB::Black;
     }
     
-    // Draw live cells
+    // Draw live cells with their assigned colors
     for (int y = 0; y < _height; y++) {
         for (int x = 0; x < _width; x++) {
             // Calculate bit position
@@ -283,7 +311,10 @@ void GameOfLifeAnimation::drawGrid() {
                 
                 // Set LED color if the index is valid
                 if (ledIndex >= 0 && ledIndex < _numLeds) {
-                    leds[ledIndex] = aliveColor;
+                    // Apply brightness
+                    CRGB color = _colorMap[y * _width + x];
+                    color.nscale8(_brightness);
+                    leds[ledIndex] = color;
                 }
             }
         }

@@ -38,6 +38,7 @@ public:
     void setAllPalettes(const std::vector<std::vector<CRGB>>* allPalettes) { _allPalettes = allPalettes; }
     void setCurrentPalette(int index);
     void setPalette(const std::vector<CRGB>* palette) { _currentPalette = palette; }
+    void setUsePalette(bool usePalette) { _usePalette = usePalette; }
 
 private:
     // Update the simulation by one generation
@@ -60,9 +61,11 @@ private:
     // Grid state
     uint8_t* _grid1;            // Current generation grid (bit-packed)
     uint8_t* _grid2;            // Next generation grid (bit-packed)
+    CRGB* _colorMap;            // Color map for each cell
     int _width;                 // Grid width
     int _height;                // Grid height
     int _gridSizeBytes;         // Size of grid in bytes
+    int _gridSize;              // Total number of cells
     
     // Stagnation detection
     int _stagnationCounter;     // Counter for identical generations
@@ -78,6 +81,7 @@ private:
     // Color and palette
     const std::vector<std::vector<CRGB>>* _allPalettes;  // Pointer to all palettes
     const std::vector<CRGB>* _currentPalette;           // Current palette
+    bool _usePalette;                                  // Whether to use palette colors
 };
 
 #endif // GAMEOFLIFEANIMATION_H
