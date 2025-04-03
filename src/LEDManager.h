@@ -35,6 +35,7 @@ public:
     int  getAnimation() const;
     size_t getAnimationCount() const;
     String getAnimationName(int animIndex) const;
+    void setSpeed(int speed);
 
     // Brightness
     void setBrightness(uint8_t brightness);

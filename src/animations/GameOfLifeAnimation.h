@@ -20,7 +20,10 @@ public:
     virtual void update() override;
     
     // Set simulation speed (interval between generations)
-    void setSpeed(uint8_t speed) { _intervalMs = map(speed, 0, 255, 50, 1000); }
+    void setSpeed(uint8_t speed) { 
+        _intervalMs = map(speed, 0, 255, 50, 1000); 
+        _lastUpdateTime = millis(); // Reset the timer
+    }
     
     // Set panel rotation angles and order
     void setRotationAngle1(int angle) { _rotationAngle1 = angle; }
