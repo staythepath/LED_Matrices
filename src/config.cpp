@@ -13,5 +13,5 @@ const int d7 = 15;
 const char* ssid = WIFI_SSID;       // Use the macro
 const char* password = WIFI_PASSWORD; // Use the macro
 const char* ntpServer = "pool.ntp.org";
-const long  gmtOffset_sec = -18000; // Example: -5 hours for EST
-const int   daylightOffset_sec = 3600; // 1-hour daylight saving time
+const long  gmtOffset_sec = -21600; // Example: -5 hours for EST
+const int   daylightOffset_sec = 0; // 1-hour daylight saving time

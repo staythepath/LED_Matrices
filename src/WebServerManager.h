@@ -18,6 +18,7 @@ public:
 private:
     AsyncWebServer _server; // Async WebServer instance
 
+    bool initSPIFFS();      // Initialize SPIFFS with error handling
     void setupRoutes();     // Function to define routes
     String createPageTemplate(const String& title, const String& content); // HTML template generator
 };

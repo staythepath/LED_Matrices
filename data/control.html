@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LED Control Panel</title>
+    <!-- Force cache refresh -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <!-- External CSS -->
+    <link rel="stylesheet" href="/css/styles.css">
+    <style>
+      /* Additional control-panel specific styles */
+      .slider-container {
+        display: flex;
+        align-items: center;
+        margin: 15px 0;
+      }
+      
+      .slider-container label {
+        width: 120px;
+        font-weight: bold;
+        color: var(--secondary, #64748b);
+      }
+      
+      .slider-container input[type="range"] {
+        margin: 0 15px;
+        flex: 1;
+        height: 6px;
+        border-radius: 3px;
+        background: rgba(255,255,255,0.1);
+      }
+      
+      .slider-container input[type="number"] {
+        width: 60px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.1);
+        color: var(--on-surface, #f8fafc);
+        padding: 5px;
+        border-radius: 4px;
+      }
+      
+      .dropdown-container {
+        margin: 15px 0;
+        display: flex;
+        align-items: center;
+      }
+      
+      .dropdown-container label {
+        width: 120px;
+        font-weight: bold;
+        color: var(--secondary, #64748b);
+      }
+      
+      select {
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.1);
+        color: var(--on-surface, #f8fafc);
+        padding: 8px;
+        border-radius: 4px;
+      }
+      
+      button {
+        background: var(--primary, #38bdf8);
+        color: #000;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        margin-left: 10px;
+        transition: all 0.2s;
+      }
+      
+      button:hover {
+        background: rgba(56, 189, 248, 0.8);
+        transform: translateY(-1px);
+      }
+      
+      .section-title {
+        margin-top: 0;
+        color: var(--primary, #38bdf8);
+      }
+      
+      /* Log container specific to control panel */
+      .log-container {
+        height: 300px;
+        resize: vertical;
+        overflow-y: auto;
+        background: #0a0a0a;
+        border: 1px solid #333;
+        border-radius: 8px;
+        padding: 10px;
+        font-family: monospace;
+        margin-top: 10px;
+        color: #eee;
+      }
+      
+      .two-columns {
+        display: flex;
+        justify-content: space-between;
+      }
+      
+      .grid-layout {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+      }
+      
+      .settings-card {
+        padding: 20px;
+        border: 1px solid #ddd;
+        border-radius: 10px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      }
+      
+      .log-section {
+        padding: 20px;
+        border: 1px solid #ddd;
+        border-radius: 10px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      }
+      
+      .panel-rotation-controls {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+      }
+      
+      .rotation-control {
+        margin: 10px;
+      }
+      
+      .control-group {
+        display: flex;
+        align-items: center;
+      }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/status">Status</a>
+      <a href="/update">Update Firmware</a>
+      <a href="/updatefs">Update SPIFFS</a>
+      <a href="/reboot">Reboot</a>
+      <a href="/control" class="active">Control Panel</a>
+      <a href="/logs">System Logs</a>
+    </nav>
+
+    <div class="container">
+      <div class="card">
+        <h1>LED Matrix Control Panel</h1>
+        
+        <!-- Two-column layout for main controls -->
+        <div class="two-columns">
+          <!-- Left column - Animation & Visual settings combined -->
+          <div class="settings-card">
+            <h2>Animation & Visual Settings</h2>
+            
+            <div class="dropdown-container">
+              <label for="selAnimation">Animation:</label>
+              <select id="selAnimation"></select>
+            </div>
+            
+            <div class="dropdown-container">
+              <label for="paletteSelect">Color Palette:</label>
+              <select id="paletteSelect"></select>
+            </div>
+            
+            <!-- Speed slider -->
+            <div class="slider-container">
+              <label for="sliderSpeed">Speed:</label>
+              <input type="range" id="sliderSpeed" min="0" max="100" step="1" value="10">
+              <input type="number" id="txtSpeed" min="3" max="1500" step="1" value="10">
+            </div>
+            
+            <!-- Brightness -->
+            <div class="slider-container">
+              <label for="sliderBrightness">Brightness:</label>
+              <input type="range" id="sliderBrightness" min="0" max="255" value="30">
+              <input type="number" id="numBrightness" min="0" max="255" value="30">
+            </div>
+            
+            <!-- Visual effect settings -->
+            <h3>Visual Effects</h3>
+            
+            <!-- Fade Amount -->
+            <div class="slider-container">
+              <label for="sliderFade">Fade Amount:</label>
+              <input type="range" id="sliderFade" min="0" max="200" value="20">
+              <input type="number" id="numFade" min="0" max="200" value="20">
+            </div>
+            
+            <!-- Tail Length -->
+            <div class="slider-container">
+              <label for="sliderTail">Tail Length:</label>
+              <input type="range" id="sliderTail" min="0" max="20" value="3">
+              <input type="number" id="numTail" min="0" max="20" value="3">
+            </div>
+            
+            <!-- Spawn Rate -->
+            <div class="slider-container">
+              <label for="sliderSpawn">Spawn Rate:</label>
+              <input type="range" id="sliderSpawn" min="1" max="100" value="20">
+              <input type="number" id="numSpawn" min="1" max="100" value="20">
+            </div>
+            
+            <!-- Max Flakes -->
+            <div class="slider-container">
+              <label for="sliderMaxFlakes">Max Flakes:</label>
+              <input type="range" id="sliderMaxFlakes" min="1" max="100" value="20">
+              <input type="number" id="numMaxFlakes" min="1" max="100" value="20">
+            </div>
+          </div>
+          
+          <!-- Right column - Panel configuration and logs -->
+          <div class="settings-card">
+            <h2>Panel Configuration</h2>
+            
+            <!-- Panel Count -->
+            <div class="slider-container">
+              <label for="sliderPanelCount">Panel Count:</label>
+              <input type="range" id="sliderPanelCount" min="1" max="2" value="2">
+              <input type="number" id="numPanelCount" min="1" max="2" value="2">
+              <button id="btnSetPanelCount">Apply</button>
+            </div>
+            
+            <!-- Panel Order -->
+            <div class="dropdown-container">
+              <label for="panelOrder">Panel Order:</label>
+              <select id="panelOrder">
+                <option value="left">Left to Right</option>
+                <option value="right">Right to Left</option>
+              </select>
+              <button id="btnPanelOrder">Apply</button>
+            </div>
+            
+            <!-- Identify Panels Button -->
+            <div class="dropdown-container">
+              <label>Identify:</label>
+              <button id="btnIdentifyPanels">Identify Panels</button>
+            </div>
+            
+            <h3>Panel Rotation</h3>
+            <div class="panel-rotation-controls">
+              <div class="rotation-control">
+                <label for="rotatePanel1">Panel 1:</label>
+                <div class="control-group">
+                  <select id="rotatePanel1">
+                    <option value="0">0°</option>
+                    <option value="90" selected>90°</option>
+                    <option value="180">180°</option>
+                    <option value="270">270°</option>
+                  </select>
+                  <button id="btnRotatePanel1">Apply</button>
+                </div>
+              </div>
+              
+              <div class="rotation-control">
+                <label for="rotatePanel2">Panel 2:</label>
+                <div class="control-group">
+                  <select id="rotatePanel2">
+                    <option value="0">0°</option>
+                    <option value="90" selected>90°</option>
+                    <option value="180">180°</option>
+                    <option value="270">270°</option>
+                  </select>
+                  <button id="btnRotatePanel2">Apply</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Log area -->
+        <div class="log-section">
+          <h2>Console Log</h2>
+          <div id="log" class="log-container"></div>
+        </div>
+      </div>
+    </div>
+
+    <script src="/script.js"></script>
+  </body>
+</html>

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LED Matrix System Logs</title>
+    <!-- Force cache refresh -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <!-- External CSS -->
+    <link rel="stylesheet" href="/css/styles.css">
+  </head>
+  <body>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/status">Status</a>
+      <a href="/update">Update Firmware</a>
+      <a href="/updatefs">Update SPIFFS</a>
+      <a href="/reboot">Reboot</a>
+      <a href="/control">Control Panel</a>
+      <a href="/logs" class="active">System Logs</a>
+    </nav>
+    
+    <div class="container">
+      <div class="card">
+        <h1>System Logs</h1>
+        <p>Real-time logs from the LED Matrix Controller</p>
+        
+        <div class="card">
+          <div class="dropdown-container">
+            <label for="logLevel">Log Level:</label>
+            <select id="logLevel">
+              <option value="verbose">Verbose</option>
+              <option value="debug">Debug</option>
+              <option value="info" selected>Info</option>
+              <option value="warning">Warning</option>
+              <option value="error">Error</option>
+            </select>
+            <button id="btnApplyLogLevel">Apply</button>
+            <button id="btnClearLogs">Clear Logs</button>
+          </div>
+          
+          <div id="logs" class="log-container"></div>
+        </div>
+      </div>
+    </div>
+    
+    <script>
+      document.addEventListener('DOMContentLoaded', function() {
+        const logs = document.getElementById('logs');
+        const btnClearLogs = document.getElementById('btnClearLogs');
+        const btnApplyLogLevel = document.getElementById('btnApplyLogLevel');
+        const logLevel = document.getElementById('logLevel');
+        
+        // WebSocket connection to receive logs
+        let socket;
+        
+        function connectWebSocket() {
+          socket = new WebSocket(`ws://${window.location.hostname}/ws`);
+          
+          socket.onopen = function() {
+            logs.innerHTML += "<span style='color: var(--primary);'>WebSocket connection established</span><br>";
+          };
+          
+          socket.onmessage = function(event) {
+            logs.innerHTML += event.data + "<br>";
+            logs.scrollTop = logs.scrollHeight;
+          };
+          
+          socket.onclose = function() {
+            logs.innerHTML += "<span style='color: #f87171;'>WebSocket connection closed. Reconnecting in 5 seconds...</span><br>";
+            setTimeout(connectWebSocket, 5000);
+          };
+          
+          socket.onerror = function() {
+            logs.innerHTML += "<span style='color: #f87171;'>WebSocket error occurred</span><br>";
+          };
+        }
+        
+        btnClearLogs.addEventListener('click', function() {
+          logs.innerHTML = "<span style='color: var(--primary);'>Logs cleared</span><br>";
+        });
+        
+        btnApplyLogLevel.addEventListener('click', function() {
+          const selectedLevel = logLevel.value;
+          fetch(`/api/setLogLevel?level=${selectedLevel}`)
+            .then(response => response.text())
+            .then(text => {
+              logs.innerHTML += `<span style='color: var(--primary);'>Log level set to ${selectedLevel}</span><br>`;
+            })
+            .catch(error => {
+              logs.innerHTML += `<span style='color: #f87171;'>Error setting log level: ${error.message}</span><br>`;
+            });
+        });
+        
+        // Initial connection
+        connectWebSocket();
+      });
+    </script>
+  </body>
+</html>
