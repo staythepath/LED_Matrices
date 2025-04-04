@@ -717,12 +717,4 @@ String LEDManager::getAnimationName(int animIndex) const {
     return "Unknown";
 }
 
-void LEDManager::setSpeed(int speed) {
-    if (_currentAnimationIndex == 4) { // GameOfLife
-        if (_currentAnimation) {
-            GameOfLifeAnimation* anim = static_cast<GameOfLifeAnimation*>(_currentAnimation);
-            anim->setSpeed(speed);
-            systemInfo("Game of Life speed set to: " + String(speed));
-        }
-    }
-}
+

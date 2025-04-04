@@ -24,6 +24,8 @@ GameOfLifeAnimation::GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, i
       _stagnationCounter(0),
       _lastCellCount(0),
       _panelOrder(1),
+        _totalWipeTime(2000),  // Default 2 seconds
+      _columnDelay(0),
       _rotationAngle1(0),
       _rotationAngle2(0),
       _rotationAngle3(0),
@@ -69,23 +71,43 @@ void GameOfLifeAnimation::begin() {
     _currentWipeColumn = 0;
     _isWiping = false;
     _needsNewGrid = true;
+    
+    // Draw the initial full grid
+    for (int y = 0; y < _height; y++) {
+        for (int x = 0; x < _width; x++) {
+            if (getCellState(_grid1, x, y)) {
+                const int ledIndex = mapXYtoLED(x, y);
+                if (ledIndex >= 0 && ledIndex < _numLeds) {
+                    leds[ledIndex] = _colorMap[getCellIndex(x, y)];
+                    leds[ledIndex].nscale8(_brightness);
+                }
+            } else {
+                const int ledIndex = mapXYtoLED(x, y);
+                if (ledIndex >= 0 && ledIndex < _numLeds) {
+                    leds[ledIndex] = CRGB::Black;
+                }
+            }
+        }
+    }
 }
 
 void GameOfLifeAnimation::update() {
     if (!_grid1 || !_grid2 || !_colorMap) return;
 
     unsigned long currentTime = millis();
-    if (currentTime - _lastUpdateTime < _intervalMs) return;
+    
+    // Calculate column delay based on total wipe time
+    _columnDelay = _totalWipeTime / (_width * 2); // *2 for both directions
+    
+    if (currentTime - _lastUpdateTime < _columnDelay) return;
     
     if (_needsNewGrid) {
-        // Calculate next generation
         calculateNextGrid();
         _needsNewGrid = false;
         _isWiping = true;
         _currentWipeColumn = (_currentWipeDirection == LEFT_TO_RIGHT) ? 0 : _width - 1;
     }
     else if (_isWiping) {
-        // Advance wipe
         if (_currentWipeDirection == LEFT_TO_RIGHT) {
             if (++_currentWipeColumn >= _width) {
                 _isWiping = false;
@@ -218,21 +240,31 @@ void GameOfLifeAnimation::updateGrid() {
 void GameOfLifeAnimation::drawGrid() {
     if (!_grid1 || !_colorMap) return;
 
-    for (int i = 0; i < _numLeds; i++) {
-        leds[i] = CRGB::Black;
-    }
-
     for (int y = 0; y < _height; y++) {
-        for (int x = 0; x < _width; x++) {
-            // Only draw up to current wipe column
-            if (_currentWipeDirection == LEFT_TO_RIGHT && x > _currentWipeColumn) continue;
-            if (_currentWipeDirection == RIGHT_TO_LEFT && x < _currentWipeColumn) continue;
-
-            if (getCellState(_grid1, x, y)) {
-                const int ledIndex = mapXYtoLED(x, y);
-                if (ledIndex >= 0 && ledIndex < _numLeds) {
-                    leds[ledIndex] = _colorMap[getCellIndex(x, y)];
-                    leds[ledIndex].nscale8(_brightness);
+        // Only process the current wipe column
+        int x = _currentWipeColumn;
+        
+        if (getCellState(_grid1, x, y)) {
+            const int ledIndex = mapXYtoLED(x, y);
+            if (ledIndex >= 0 && ledIndex < _numLeds) {
+                CRGB newColor = _colorMap[getCellIndex(x, y)];
+                newColor.nscale8(_brightness);
+                
+                // Proper CRGB comparison
+                if (leds[ledIndex].r != newColor.r || 
+                    leds[ledIndex].g != newColor.g || 
+                    leds[ledIndex].b != newColor.b) {
+                    leds[ledIndex] = newColor;
+                }
+            }
+        } else {
+            const int ledIndex = mapXYtoLED(x, y);
+            if (ledIndex >= 0 && ledIndex < _numLeds) {
+                // Proper comparison to black
+                if (leds[ledIndex].r != 0 || 
+                    leds[ledIndex].g != 0 || 
+                    leds[ledIndex].b != 0) {
+                    leds[ledIndex] = CRGB::Black;
                 }
             }
         }
@@ -317,9 +349,16 @@ CRGB GameOfLifeAnimation::getNewColor() const {
     return CRGB(random(256), random(256), random(256));
 }
 
+
+
 void GameOfLifeAnimation::setSpeed(uint8_t speed) {
-    _intervalMs = map(speed, 0, 255, 50, 1000);
+    // Map speed to total wipe time (0-255 -> 50-2000ms)
+    _totalWipeTime = map(speed, 0, 255, 50, 2000);
+    _lastUpdateTime = millis();
 }
+
+
+
 
 void GameOfLifeAnimation::setAllPalettes(const std::vector<std::vector<CRGB>>* allPalettes) {
     _allPalettes = allPalettes;

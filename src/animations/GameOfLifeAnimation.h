@@ -27,6 +27,11 @@ public:
     void setRotationAngle3(int angle) { _rotationAngle3 = angle; }
     void setPanelOrder(int order) { _panelOrder = order; }
 
+    // In GameOfLifeAnimation.h private section
+
+
+    
+
 private:
     enum WipeDirection { LEFT_TO_RIGHT, RIGHT_TO_LEFT };
 
@@ -36,6 +41,9 @@ private:
     int mapXYtoLED(int x, int y);
     int countLiveCells();
     
+    uint32_t _totalWipeTime;  // Total time for complete wipe cycle
+    uint32_t _columnDelay;    // Time per column update
+
     void applyRotation(int& x, int& y, int panelIndex) const;
     CRGB getNewColor() const;
 
