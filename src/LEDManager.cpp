@@ -80,8 +80,8 @@ void LEDManager::finishInitialization() {
     // Set initialization flag to false to stop loading animation
     _isInitializing = false;
     
-    // Create default animation (Traffic)
-    setAnimation(0);
+    // Create default animation (Game of Life)
+    setAnimation(4);
     
     Serial.printf("Free heap after animation switch: %u bytes\n", ESP.getFreeHeap());
 }
