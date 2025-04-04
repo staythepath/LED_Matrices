@@ -36,6 +36,7 @@ public:
     size_t getAnimationCount() const;
     String getAnimationName(int animIndex) const;
     void setSpeed(int speed);
+    int getSpeed() const { return _speed; }
 
     // Brightness
     void setBrightness(uint8_t brightness);
@@ -109,6 +110,7 @@ private:
 
     unsigned long ledUpdateInterval;
     unsigned long lastLedUpdate;
+    int _speed;
 };
 
 #endif // LEDMANAGER_H

@@ -119,6 +119,17 @@ void LEDManager::configureCurrentAnimation() {
     // Set common properties for all animations
     _currentAnimation->setBrightness(_brightness);
     
+    // Configure the animation based on its type
+    if (_currentAnimation->isBlink()) {
+        static_cast<BlinkAnimation*>(_currentAnimation)->setInterval(map(ledUpdateInterval, 10, 1500, 0, 255));
+    } else if (_currentAnimation->isTraffic()) {
+        static_cast<TrafficAnimation*>(_currentAnimation)->setUpdateInterval(map(ledUpdateInterval, 10, 1500, 0, 255));
+    } else if (_currentAnimation->isRainbowWave()) {
+        static_cast<RainbowWaveAnimation*>(_currentAnimation)->setUpdateInterval(map(ledUpdateInterval, 10, 1500, 0, 255));
+    } else if (_currentAnimation->isGameOfLife()) {
+        static_cast<GameOfLifeAnimation*>(_currentAnimation)->setUpdateInterval(map(ledUpdateInterval, 10, 1500, 0, 255));
+    }
+    
     // Set animation-specific properties
     if (_currentAnimationIndex == 0) { // Traffic
         TrafficAnimation* anim = static_cast<TrafficAnimation*>(_currentAnimation);
@@ -172,7 +183,7 @@ void LEDManager::configureCurrentAnimation() {
         anim->setRotationAngle2(rotationAngle2);
         anim->setRotationAngle3(rotationAngle3);
         anim->setPanelOrder(panelOrder);
-        anim->setSpeed(map(ledUpdateInterval, 10, 1500, 0, 255));
+        anim->setUpdateInterval(map(ledUpdateInterval, 10, 1500, 0, 255));
         anim->setAllPalettes(&ALL_PALETTES);
         anim->setCurrentPalette(currentPalette);
     }
@@ -310,21 +321,26 @@ void LEDManager::setPanelCount(int count) {
             // Catch any memory allocation failures or other exceptions
             systemError("Error recreating animation: " + String(e.what()));
             
-            // Try to fall back to Traffic animation (simplest)
-            systemInfo("Falling back to Traffic animation");
+            // Try to create a simpler animation
             try {
-                setAnimation(0); // Traffic animation
+                _currentAnimation = new TrafficAnimation(_numLeds, _brightness, _panelCount);
+                _currentAnimationIndex = 0;
             } catch (...) {
-                systemCritical("CRITICAL: Failed to create fallback animation!");
+                systemCritical("CRITICAL: Failed to create even the fallback animation!");
+                _currentAnimation = nullptr;
+                return;
             }
         } catch (...) {
             systemError("Unknown error recreating animation");
             
-            // Try to fall back to Traffic animation
+            // Try to create a simpler animation
             try {
-                setAnimation(0); // Traffic animation
+                _currentAnimation = new TrafficAnimation(_numLeds, _brightness, _panelCount);
+                _currentAnimationIndex = 0;
             } catch (...) {
-                systemCritical("CRITICAL: Failed to create fallback animation!");
+                systemCritical("CRITICAL: Failed to create even the fallback animation!");
+                _currentAnimation = nullptr;
+                return;
             }
         }
     } else {
@@ -698,10 +714,39 @@ void LEDManager::setUpdateSpeed(unsigned long speed){
             Serial.printf("RainbowWave effective speed: %.0fms, multiplier: %.2f\n", 
                 speedValue, speedMultiplier);
         }
+        else if(_currentAnimationIndex == 4 && _currentAnimation){
+            GameOfLifeAnimation* gA = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+            gA->setUpdateInterval(speed);
+        }
     }
 }
 unsigned long LEDManager::getUpdateSpeed() const {
     return ledUpdateInterval;
+}
+
+void LEDManager::setSpeed(int speed) {
+    if (!_currentAnimation) return;
+    
+    // Map speed to interval (3-1500ms)
+    unsigned long intervalMs = speed <= 50 
+        ? 3 + (speed / 50.0) * 47  // Linear mapping for 0-50 -> 3-50ms
+        : 50 + pow((speed - 50) / 50.0, 2) * 1450;  // Quadratic mapping for 50-100 -> 50-1500ms
+    
+    // Cast to int to match the frontend's expected type
+    intervalMs = static_cast<unsigned long>(intervalMs);
+    
+    // Set the interval based on the animation type
+    if (_currentAnimation->isBlink()) {
+        static_cast<BlinkAnimation*>(_currentAnimation)->setInterval(intervalMs);
+    } else if (_currentAnimation->isTraffic()) {
+        static_cast<TrafficAnimation*>(_currentAnimation)->setUpdateInterval(intervalMs);
+    } else if (_currentAnimation->isRainbowWave()) {
+        static_cast<RainbowWaveAnimation*>(_currentAnimation)->setUpdateInterval(intervalMs);
+    } else if (_currentAnimation->isGameOfLife()) {
+        static_cast<GameOfLifeAnimation*>(_currentAnimation)->setUpdateInterval(intervalMs);
+    }
+    
+    _speed = speed;
 }
 
 int LEDManager::getAnimation() const {
@@ -716,5 +761,3 @@ String LEDManager::getAnimationName(int animIndex) const {
     }
     return "Unknown";
 }
-
-

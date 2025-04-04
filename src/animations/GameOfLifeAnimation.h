@@ -15,7 +15,9 @@ public:
     virtual void begin() override;
     virtual void update() override;
 
-    void setSpeed(uint8_t speed);
+    // Speed control
+    void setUpdateInterval(unsigned long intervalMs);
+
     void randomize(uint8_t density = 33);
     
     void setAllPalettes(const std::vector<std::vector<CRGB>>* allPalettes);
@@ -26,6 +28,9 @@ public:
     void setRotationAngle2(int angle) { _rotationAngle2 = angle; }
     void setRotationAngle3(int angle) { _rotationAngle3 = angle; }
     void setPanelOrder(int order) { _panelOrder = order; }
+
+    // Type checking
+    bool isGameOfLife() const override { return true; }
 
     // In GameOfLifeAnimation.h private section
 
@@ -41,6 +46,10 @@ private:
     int mapXYtoLED(int x, int y);
     int countLiveCells();
     
+    WipeDirection _currentWipeDirection;
+    int _currentWipeColumn;
+    bool _isWiping;
+    bool _needsNewGrid;
     uint32_t _totalWipeTime;  // Total time for complete wipe cycle
     uint32_t _columnDelay;    // Time per column update
 
@@ -61,12 +70,6 @@ private:
     int _gridSize;
     uint32_t _intervalMs;
     uint32_t _lastUpdateTime;
-
-    // Wipe effect variables
-    WipeDirection _currentWipeDirection;
-    int _currentWipeColumn;
-    bool _isWiping;
-    bool _needsNewGrid;
 
     // Game state
     int _stagnationCounter;

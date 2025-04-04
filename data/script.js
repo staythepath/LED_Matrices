@@ -370,85 +370,78 @@ function loadPalettes(callback) {
 function loadSettings(callback) {
   log("Loading settings...");
   
-  // Get all settings in separate requests to avoid overwhelming the ESP32
-  Promise.all([
-    fetch("/api/getBrightness").then(r => r.text()).catch(() => "32"),
-    fetch("/api/getFadeAmount").then(r => r.text()).catch(() => "39"),
-    fetch("/api/getTailLength").then(r => r.text()).catch(() => "3"),
-    fetch("/api/getSpawnRate").then(r => r.text()).catch(() => "1.0"),
-    fetch("/api/getMaxFlakes").then(r => r.text()).catch(() => "100"),
-    fetch("/api/getSpeed").then(r => r.text()).catch(() => "30"),
-    fetch("/api/getPanelCount").then(r => r.text()).catch(() => "2"),
-    fetch("/api/getRotation?panel=PANEL1").then(r => r.text()).catch(() => "90"),
-    fetch("/api/getRotation?panel=PANEL2").then(r => r.text()).catch(() => "90"),
-    fetch("/api/getRotation?panel=PANEL3").then(r => r.text()).catch(() => "90"),
-    fetch("/api/getPanelOrder").then(r => r.text()).catch(() => "normal")
-  ])
-  .then(results => {
-    const [
-      brightness, 
-      fade, 
-      tail, 
-      spawn, 
-      maxFlakes, 
-      speed, 
-      panelCount,
-      rotation1,
-      rotation2,
-      rotation3,
-      panelOrder
-    ] = results;
-    
-    log("Got parameters:");
-    log(`Brightness: ${brightness}`);
-    log(`Fade: ${fade}`);
-    log(`Tail: ${tail}`);
-    log(`Spawn: ${spawn}`);
-    log(`MaxFlakes: ${maxFlakes}`);
-    log(`Speed: ${speed}`);
-    log(`Panel Count: ${panelCount}`);
-    log(`Panel 1 Rotation: ${rotation1}°`);
-    log(`Panel 2 Rotation: ${rotation2}°`);
-    log(`Panel 3 Rotation: ${rotation3}°`);
-    log(`Panel Order: ${panelOrder}`);
+  // Immediately resolve with default values
+  Promise.resolve()
+    .then(() => {
+      const results = [
+        "32",   // brightness
+        "39",   // fade
+        "3",    // tail
+        "1.0",  // spawn
+        "100",  // maxFlakes
+        "30",   // speed
+        "2",    // panelCount
+        "90",   // rotation1
+        "90",   // rotation2
+        "90",   // rotation3
+        "normal"// panelOrder
+      ];
 
-    // Set UI values - parse the values to handle JSON responses
-    setSliderValue("sliderBrightness", brightness, "numBrightness");
-    setSliderValue("sliderFade", fade, "numFade");
-    setSliderValue("sliderTail", tail, "numTail");
-    setSliderValue("sliderSpawn", spawn, "numSpawn");
-    setSliderValue("sliderMaxFlakes", maxFlakes, "numMaxFlakes");
-    updateSpeedUI(speed);
-    
-    // Handle panel count specially - always use 2 regardless of API response
-    const pcSlider = document.getElementById("sliderPanelCount");
-    if (pcSlider) {
-      pcSlider.value = 2;
-      updateUIValue("numPanelCount", 2);
-    }
-    
-    // Set panel rotation dropdowns
-    if (document.getElementById("rotatePanel1")) {
-      document.getElementById("rotatePanel1").value = parseValue(rotation1);
-    }
-    if (document.getElementById("rotatePanel2")) {
-      document.getElementById("rotatePanel2").value = parseValue(rotation2);
-    }
-    if (document.getElementById("rotatePanel3")) {
-      document.getElementById("rotatePanel3").value = parseValue(rotation3);
-    }
-    if (document.getElementById("panelOrder")) {
-      document.getElementById("panelOrder").value = parseValue(panelOrder).toLowerCase();
-    }
-    
-    log("UI initialization complete.");
-    
-    if (callback) callback();
-  })
-  .catch(err => {
-    log("Error loading settings: " + err);
-    if (callback) callback();
-  });
+      // Destructure results (same as before)
+      const [
+        brightness, fade, tail, spawn, maxFlakes, speed, panelCount,
+        rotation1, rotation2, rotation3, panelOrder
+      ] = results;
+
+      log("Got parameters:");
+      log(`Brightness: ${brightness}`);
+      log(`Fade: ${fade}`);
+      log(`Tail: ${tail}`);
+      log(`Spawn: ${spawn}`);
+      log(`MaxFlakes: ${maxFlakes}`);
+      log(`Speed: ${speed}`);
+      log(`Panel Count: ${panelCount}`);
+      log(`Panel 1 Rotation: ${rotation1}°`);
+      log(`Panel 2 Rotation: ${rotation2}°`);
+      log(`Panel 3 Rotation: ${rotation3}°`);
+      log(`Panel Order: ${panelOrder}`);
+
+      // Set UI values (same as before)
+      setSliderValue("sliderBrightness", brightness, "numBrightness");
+      setSliderValue("sliderFade", fade, "numFade");
+      setSliderValue("sliderTail", tail, "numTail");
+      setSliderValue("sliderSpawn", spawn, "numSpawn");
+      setSliderValue("sliderMaxFlakes", maxFlakes, "numMaxFlakes");
+      updateSpeedUI(speed);
+
+      // Force panel count to 2
+      const pcSlider = document.getElementById("sliderPanelCount");
+      if (pcSlider) {
+        pcSlider.value = 2;
+        updateUIValue("numPanelCount", 2);
+      }
+
+      // Set rotations and panel order
+      if (document.getElementById("rotatePanel1")) {
+        document.getElementById("rotatePanel1").value = parseValue(rotation1);
+      }
+      if (document.getElementById("rotatePanel2")) {
+        document.getElementById("rotatePanel2").value = parseValue(rotation2);
+      }
+      if (document.getElementById("rotatePanel3")) {
+        document.getElementById("rotatePanel3").value = parseValue(rotation3);
+      }
+      if (document.getElementById("panelOrder")) {
+        document.getElementById("panelOrder").value = parseValue(panelOrder).toLowerCase();
+      }
+
+      log("UI initialization complete.");
+      if (callback) callback();
+    })
+    .catch(err => {
+      log("Error loading settings: " + err);
+      if (callback) callback();
+    });
 }
 
 // Helper function to handle potential JSON responses

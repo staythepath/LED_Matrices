@@ -702,31 +702,32 @@ void WebServerManager::begin() {
             return;
         }
         int speed = request->getParam("val")->value().toInt();
-        if(speed < 3) speed = 3;  // Minimum 3ms
-        if(speed > 1500) speed = 1500; // Max 1.5 seconds
-        
-        ledManager.setUpdateSpeed(speed);
-        String msg = "Speed set to " + String(speed) + "ms";
-        
-        releaseLEDManager();
-        request->send(200,"text/plain", msg);
-        Serial.println(msg);
+        if(speed>=0 && speed<=100){
+            ledManager.setSpeed(speed);
+            String msg = "Speed set to " + String(speed);
+            
+            releaseLEDManager();
+            request->send(200,"text/plain", msg);
+            Serial.println(msg);
+        } else {
+            releaseLEDManager();
+            request->send(400,"text/plain","Speed must be 0..100");
+        }
     });
 
-    // 20) getSpeed => returns current speed in ms
     _server.on("/api/getSpeed", HTTP_GET, [](AsyncWebServerRequest *request){
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
             return;
         }
         
-        unsigned long speed = ledManager.getUpdateSpeed();
+        int speed = ledManager.getSpeed();
         
         releaseLEDManager();
         request->send(200,"text/plain", String(speed));
     });
 
-    // 21) setPanelCount => param "val" (1..8)
+    // 20) setPanelCount => param "val" (1..8)
     _server.on("/api/setPanelCount", HTTP_GET, [](AsyncWebServerRequest *request){
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
@@ -750,7 +751,7 @@ void WebServerManager::begin() {
         Serial.println(msg);
     });
 
-    // 22) getPanelCount => returns current panel count
+    // 21) getPanelCount => returns current panel count
     _server.on("/api/getPanelCount", HTTP_GET, [](AsyncWebServerRequest *request){
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
@@ -764,7 +765,7 @@ void WebServerManager::begin() {
         request->send(200,"application/json", json);
     });
 
-    // 23) identifyPanels => flash each panel in sequence
+    // 22) identifyPanels => flash each panel in sequence
     _server.on("/api/identifyPanels", HTTP_GET, [](AsyncWebServerRequest *request){
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");

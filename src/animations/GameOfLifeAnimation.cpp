@@ -19,19 +19,23 @@ GameOfLifeAnimation::GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, i
       _colorMap(nullptr),
       _width(BASE_PANEL_SIZE * panelCount),
       _height(BASE_PANEL_SIZE),
-      _intervalMs(150),
+      _intervalMs(150),  // Default interval in ms
       _lastUpdateTime(0),
       _stagnationCounter(0),
       _lastCellCount(0),
       _panelOrder(1),
-        _totalWipeTime(2000),  // Default 2 seconds
+      _totalWipeTime(2000),
       _columnDelay(0),
       _rotationAngle1(0),
       _rotationAngle2(0),
       _rotationAngle3(0),
       _allPalettes(nullptr),
       _currentPalette(nullptr),
-      _usePalette(true) {
+      _usePalette(true),
+      _currentWipeDirection(LEFT_TO_RIGHT),
+      _currentWipeColumn(0),
+      _isWiping(false),
+      _needsNewGrid(true) {
     
     _gridSize = _width * _height;
     _gridSizeBytes = (_gridSize + 7) / 8;
@@ -65,7 +69,7 @@ GameOfLifeAnimation::~GameOfLifeAnimation() {
 
 void GameOfLifeAnimation::begin() {
     if (!_grid1 || !_grid2 || !_colorMap) return;
-    randomize(_initialDensity);
+    randomize(33);  // Initialize with 33% density
     _lastUpdateTime = millis();
     _currentWipeDirection = LEFT_TO_RIGHT;
     _currentWipeColumn = 0;
@@ -125,6 +129,7 @@ void GameOfLifeAnimation::update() {
 
     _lastUpdateTime = currentTime;
     drawGrid();
+    FastLED.show();
 }
 
 void GameOfLifeAnimation::calculateNextGrid() {
@@ -196,45 +201,6 @@ void GameOfLifeAnimation::randomize(uint8_t density) {
             }
         }
     }
-}
-
-void GameOfLifeAnimation::updateGrid() {
-    for (int y = 0; y < _height; y++) {
-        for (int x = 0; x < _width; x++) {
-            int neighbors = 0;
-            
-            // Count neighbors with toroidal wrapping
-            for (int dy = -1; dy <= 1; dy++) {
-                for (int dx = -1; dx <= 1; dx++) {
-                    if (dx == 0 && dy == 0) continue;
-                    
-                    const int nx = (x + dx + _width) % _width;
-                    const int ny = (y + dy + _height) % _height;
-                    
-                    if (getCellState(_grid1, nx, ny)) {
-                        neighbors++;
-                    }
-                }
-            }
-
-            const bool isAlive = getCellState(_grid1, x, y);
-            bool willLive = false;
-            const int idx = getCellIndex(x, y);
-
-            if (isAlive) {
-                willLive = (neighbors == 2 || neighbors == 3);
-                if (!willLive) _colorMap[idx] = CRGB::Black;
-            } else {
-                willLive = (neighbors == 3);
-                if (willLive) _colorMap[idx] = getNewColor();
-            }
-
-            setCellState(_grid2, x, y, willLive);
-        }
-    }
-
-    // Swap grids
-    std::swap(_grid1, _grid2);
 }
 
 void GameOfLifeAnimation::drawGrid() {
@@ -349,16 +315,11 @@ CRGB GameOfLifeAnimation::getNewColor() const {
     return CRGB(random(256), random(256), random(256));
 }
 
-
-
-void GameOfLifeAnimation::setSpeed(uint8_t speed) {
-    // Map speed to total wipe time (0-255 -> 50-2000ms)
-    _totalWipeTime = map(speed, 0, 255, 50, 2000);
+void GameOfLifeAnimation::setUpdateInterval(unsigned long intervalMs) {
+    _intervalMs = intervalMs;
+    _totalWipeTime = intervalMs;
     _lastUpdateTime = millis();
 }
-
-
-
 
 void GameOfLifeAnimation::setAllPalettes(const std::vector<std::vector<CRGB>>* allPalettes) {
     _allPalettes = allPalettes;

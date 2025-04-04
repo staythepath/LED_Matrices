@@ -34,6 +34,12 @@ public:
     // A virtual setter for brightness (can be overridden)
     virtual void setBrightness(uint8_t b) { _brightness = b; }
 
+    // Type checking methods
+    virtual bool isBlink() const { return false; }
+    virtual bool isTraffic() const { return false; }
+    virtual bool isRainbowWave() const { return false; }
+    virtual bool isGameOfLife() const { return false; }
+
 protected:
     // Shared with derived classes
     uint16_t _numLeds;
