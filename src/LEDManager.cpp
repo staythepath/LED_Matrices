@@ -750,30 +750,23 @@ unsigned long LEDManager::getUpdateSpeed() const {
 void LEDManager::setSpeed(int speed) {
     if (!_currentAnimation) return;
     
-    // Validate the input range
-    if (speed < 0) speed = 0;
-    if (speed > 100) speed = 100;
-    
-    // Store the current speed value
+    // Validate and constrain input
+    speed = constrain(speed, 0, 100);
     _speed = speed;
+
+    // Exponential decay parameters for smooth speed curve
+    const float minInterval = 1.0f;    // 1ms minimum at max speed
+    const float maxInterval = 2000.0f; // 2000ms at minimum speed
+    const float decayFactor = 0.045f;  // Steeper curve for faster high-end
     
-    // Use a logarithmic mapping for smoother control across the range
-    // This provides finer control at slower speeds and coarser at faster speeds
-    const float minInterval = 5.0;   // Fastest animation at speed 100 (5ms minimum)
-    const float maxInterval = 2000.0; // Slowest animation at speed 0 (2000ms)
+    // Exponential decay formula: interval = max * e^(-factor * speed)
+    ledUpdateInterval = maxInterval * exp(-decayFactor * speed);
     
-    // Map slider value 0-100 to a logarithmic scale
-    float normalizedSpeed = speed / 100.0f; // 0.0 to 1.0
-    float logMin = log10(minInterval);
-    float logMax = log10(maxInterval);
-    float logInterval = logMax + normalizedSpeed * (logMin - logMax);
+    // Constrain to our desired range
+    ledUpdateInterval = constrain(ledUpdateInterval, minInterval, maxInterval);
     
-    // Convert back from log scale to linear scale
-    ledUpdateInterval = pow(10, logInterval);
+    Serial.printf("Speed: %d%%, Interval: %.1fms\n", speed, ledUpdateInterval);
     
-    Serial.printf("Speed set to %d, update interval: %lu ms\n", speed, ledUpdateInterval);
-    
-    // Apply the configuration to ensure speed is immediately applied to all animations
     configureCurrentAnimation();
 }
 

@@ -23,6 +23,9 @@ public:
     void setAllPalettes(const std::vector<std::vector<CRGB>>* allPalettes);
     void setCurrentPalette(int index);
     void setUsePalette(bool usePalette);
+    
+    // Calculate fade duration based on bar position and movement pattern
+    uint32_t calculateFadeDuration(int x) const;
 
     void setRotationAngle1(int angle) { _rotationAngle1 = angle; }
     void setRotationAngle2(int angle) { _rotationAngle2 = angle; }
@@ -63,7 +66,12 @@ private:
 
     uint8_t* _grid1;
     uint8_t* _grid2;
-    CRGB* _colorMap;
+    uint8_t* _newBornCells; // Track cells that were just born in current generation
+    uint8_t* _highlightIntensity; // Track white highlight intensity for each cell
+    uint32_t* _fadeStartTime;  // Timestamp when each cell started fading
+    uint32_t* _fadeDuration;   // Custom fade duration for each cell
+    CRGB* _colorMap;       // Final colors assigned to cells
+    CRGB* _transitionMap;  // Current transitioning colors (for white-to-color fade)
     
     int _width;
     int _height;

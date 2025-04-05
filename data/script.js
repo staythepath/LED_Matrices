@@ -626,9 +626,9 @@ function loadEverything() {
  * Speed Slider
  ************************************************/
 function sliderToSpeed(slVal) {
-  // Non-linear mapping with better granularity at lower values
+  // More aggressive mapping for higher speeds
   // 0-50 on slider maps to 3-50ms (linear)
-  // 50-100 on slider maps to 50-1500ms (quadratic)
+  // 50-100 on slider maps to 50-500ms (quadratic)
   
   const sliderValue = parseFloat(slVal);
   
@@ -636,10 +636,10 @@ function sliderToSpeed(slVal) {
     // Linear mapping for 0-50 slider values to 3-50ms
     return Math.round(3 + (sliderValue / 50) * 47);
   } else {
-    // Quadratic mapping for 50-100 slider values to 50-1500ms
+    // More aggressive quadratic mapping for 50-100 slider values to 50-500ms
     const normalizedValue = (sliderValue - 50) / 50; // 0 to 1
     const quadraticValue = normalizedValue * normalizedValue; // Apply quadratic curve
-    return Math.round(50 + quadraticValue * 1450);
+    return Math.round(50 + quadraticValue * 450);
   }
 }
 
