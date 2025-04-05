@@ -67,6 +67,7 @@ private:
     uint8_t* _grid1;
     uint8_t* _grid2;
     uint8_t* _newBornCells; // Track cells that were just born in current generation
+    uint8_t* _dyingCells;   // Track cells that are dying in current generation
     uint8_t* _highlightIntensity; // Track white highlight intensity for each cell
     uint32_t* _fadeStartTime;  // Timestamp when each cell started fading
     uint32_t* _fadeDuration;   // Custom fade duration for each cell

@@ -47,16 +47,18 @@ GameOfLifeAnimation::GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, i
     _grid1 = new (std::nothrow) uint8_t[_gridSizeBytes];
     _grid2 = new (std::nothrow) uint8_t[_gridSizeBytes];
     _newBornCells = new (std::nothrow) uint8_t[_gridSizeBytes];
+    _dyingCells = new (std::nothrow) uint8_t[_gridSizeBytes];   // Track cells that are dying
     _highlightIntensity = new (std::nothrow) uint8_t[_gridSize]; // Full array since intensity needs a value per cell
     _fadeStartTime = new (std::nothrow) uint32_t[_gridSize];    // Timestamps for independent fading
     _fadeDuration = new (std::nothrow) uint32_t[_gridSize];     // Custom fade duration for each cell
     _colorMap = new (std::nothrow) CRGB[_gridSize];
     _transitionMap = new (std::nothrow) CRGB[_gridSize];
 
-    if (_grid1 && _grid2 && _newBornCells && _highlightIntensity && _fadeStartTime && _fadeDuration && _colorMap && _transitionMap) {
+    if (_grid1 && _grid2 && _newBornCells && _dyingCells && _highlightIntensity && _fadeStartTime && _fadeDuration && _colorMap && _transitionMap) {
         memset(_grid1, 0, _gridSizeBytes);
         memset(_grid2, 0, _gridSizeBytes);
         memset(_newBornCells, 0, _gridSizeBytes);
+        memset(_dyingCells, 0, _gridSizeBytes);
         memset(_highlightIntensity, 0, _gridSize);
         memset(_fadeStartTime, 0, _gridSize * sizeof(uint32_t));
         memset(_fadeDuration, 0, _gridSize * sizeof(uint32_t));
@@ -81,6 +83,7 @@ GameOfLifeAnimation::~GameOfLifeAnimation() {
     delete[] _grid1;
     delete[] _grid2;
     delete[] _newBornCells;
+    delete[] _dyingCells;
     delete[] _highlightIntensity;
     delete[] _fadeStartTime;
     delete[] _fadeDuration;
@@ -91,6 +94,11 @@ GameOfLifeAnimation::~GameOfLifeAnimation() {
 void GameOfLifeAnimation::begin() {
     if (!_grid1 || !_grid2 || !_colorMap) return;
     randomize(33);  // Initialize with 33% density
+    
+    // Clear any previous state
+    memset(_newBornCells, 0, _gridSizeBytes);
+    memset(_dyingCells, 0, _gridSizeBytes);
+    
     _lastUpdateTime = millis();
     _currentWipeDirection = LEFT_TO_RIGHT;
     _currentWipeColumn = 0;
@@ -385,7 +393,31 @@ void GameOfLifeAnimation::calculateNextGrid() {
 
             if (isAlive) {
                 willLive = (neighbors == 2 || neighbors == 3);
-                if (!willLive) _colorMap[idx] = CRGB::Black;
+                if (!willLive) {
+                    // This cell is dying
+                    setCellState(_dyingCells, x, y, true);
+                    
+                    // Store its current color in the transition map for fade-out effect
+                    // Check if it has a valid color first
+                    if (_colorMap[idx].r == 0 && _colorMap[idx].g == 0 && _colorMap[idx].b == 0) {
+                        // If it doesn't have a proper color, use a dim magenta
+                        _transitionMap[idx] = CRGB(50, 0, 50);
+                    } else {
+                        _transitionMap[idx] = _colorMap[idx];
+                    }
+                    
+                    // Reset any lingering fade state from birth animation
+                    _highlightIntensity[idx] = 0;
+                    
+                    // Start the fade-out immediately
+                    _fadeStartTime[idx] = millis();
+                    
+                    // Give each cell a slightly different fade duration (1-2 seconds)
+                    _fadeDuration[idx] = 1000 + random(1000);
+                    
+                    // Set final color to black
+                    _colorMap[idx] = CRGB::Black;
+                }
             } else {
                 willLive = (neighbors == 3);
                 if (willLive) {
@@ -393,6 +425,9 @@ void GameOfLifeAnimation::calculateNextGrid() {
                     CRGB targetColor = getNewColor(); // Get the color this cell will eventually have
                     _colorMap[idx] = targetColor;     // Store the target color
                     _transitionMap[idx] = CRGB(255, 255, 255); // Use bright white
+                    
+                    // Reset any lingering death fade state
+                    setCellState(_dyingCells, x, y, false);
                     
                     // Mark it in the newBornCells array
                     setCellState(_newBornCells, x, y, true);
@@ -437,7 +472,13 @@ void GameOfLifeAnimation::calculateNextGrid() {
 void GameOfLifeAnimation::randomize(uint8_t density) {
     if (!_grid1 || !_colorMap) return;
 
+    // Reset all grid and transition related arrays
     memset(_grid1, 0, _gridSizeBytes);
+    memset(_newBornCells, 0, _gridSizeBytes);
+    memset(_dyingCells, 0, _gridSizeBytes);
+    memset(_highlightIntensity, 0, _gridSize);
+    memset(_fadeStartTime, 0, _gridSize * sizeof(uint32_t));
+    memset(_fadeDuration, 0, _gridSize * sizeof(uint32_t));
     for (int y = 0; y < _height; y++) {
         for (int x = 0; x < _width; x++) {
             if (random(100) < density) {
@@ -467,12 +508,12 @@ void GameOfLifeAnimation::drawGrid() {
             
             const int ledIndex = mapXYtoLED(x, y);
             if (ledIndex >= 0 && ledIndex < _numLeds) {
+                const uint8_t idx = getCellIndex(x, y);
+                const uint32_t currentTime = millis();
+                
                 if (getCellState(_grid1, x, y)) { // Is the cell alive in the current grid?
-                    uint8_t idx = getCellIndex(x, y);
+                    // Handle cells that are alive
                     uint8_t transitionProgress = _highlightIntensity[idx];
-
-                    // Get current time for fade calculation
-                    uint32_t currentTime = millis();
                     uint32_t fadeStartedAt = _fadeStartTime[idx];
                     
                     if (fadeStartedAt > 0) { // This cell has started fading
@@ -502,6 +543,40 @@ void GameOfLifeAnimation::drawGrid() {
                     } else { // Not a fading cell
                         leds[ledIndex] = _colorMap[idx];
                         leds[ledIndex].nscale8(_brightness);
+                    }
+                } else if (getCellState(_dyingCells, x, y)) { // Is this a dying cell?
+                    // Handle cells that are dying with a fade-out effect
+                    uint32_t fadeStartedAt = _fadeStartTime[idx];
+                    
+                    if (fadeStartedAt > 0) {
+                        // Calculate how long this cell has been fading
+                        uint32_t fadeTime = currentTime - fadeStartedAt;
+                        // Get this cell's custom fade duration
+                        const uint32_t FADE_DURATION_MS = _fadeDuration[idx];
+                        
+                        if (fadeTime >= FADE_DURATION_MS) {
+                            // Fade is complete, cell is now completely dead
+                            leds[ledIndex] = CRGB::Black;
+                            
+                            // Clear the dying flag since the animation is complete
+                            setCellState(_dyingCells, x, y, false);
+                        } else {
+                            // Calculate proportional fade (0-255)
+                            uint8_t fadeProgress = (fadeTime * 255) / FADE_DURATION_MS;
+                            
+                            // Blend from original color to black based on fade progress
+                            CRGB originalColor = _transitionMap[idx];
+                            
+                            // Safety check for invalid colors
+                            if (originalColor.r == 0 && originalColor.g == 0 && originalColor.b == 0) {
+                                originalColor = CRGB(50, 0, 50); // Use magenta as fallback
+                            }
+                            
+                            originalColor.nscale8(_brightness);
+                            originalColor.nscale8(255 - fadeProgress); // Fade to black
+                            
+                            leds[ledIndex] = originalColor;
+                        }
                     }
                 } else {
                     // Empty cell is black
