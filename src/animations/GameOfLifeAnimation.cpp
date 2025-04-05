@@ -100,11 +100,13 @@ void GameOfLifeAnimation::update() {
     
     unsigned long currentTime = millis();
     
-    // Use _intervalMs directly for timing to ensure speed slider works properly
-    if (currentTime - _lastUpdateTime < _intervalMs) return;
+    // CRITICAL: The _intervalMs directly controls how quickly we process columns
+    // This value comes from LEDManager based on the speed slider position
+    // For speed=0 (slowest): _intervalMs ≈ 2000ms = 2 seconds per column
+    // For speed=100 (fastest): _intervalMs ≈ 5ms = 0.005 seconds per column
     
-    // CONTINUOUS APPROACH: Use the same animation logic at all speeds
-    // with continuous exponential scaling for smooth transitions
+    // Only proceed if enough time has passed since the last update
+    if (currentTime - _lastUpdateTime < _intervalMs) return;
     
     // State machine logic - either calculate new generation or continue wiping
     if (_needsNewGrid) {
@@ -116,37 +118,27 @@ void GameOfLifeAnimation::update() {
         // Always alternate wipe direction for visual interest
         _currentWipeDirection = (_currentWipeDirection == LEFT_TO_RIGHT) ? RIGHT_TO_LEFT : LEFT_TO_RIGHT;
         _currentWipeColumn = (_currentWipeDirection == LEFT_TO_RIGHT) ? 0 : _width - 1;
+        
+        // Draw the initial state with current column highlighted
+        drawGrid();
     }
     else if (_isWiping) {
-        // CONTINUOUS SCALING: Calculate columns per update using an exponential curve
-        // that smoothly transitions from 1 column (slow) to many columns (fast)
+        // Process exactly ONE column at a time - this ensures every column gets processed
+        // The speed control comes from how frequently this code block runs (_intervalMs)
         
-        // Base formula: f(x) = a * e^(-bx)
-        // Where 'x' is _intervalMs, and result is columns per update
-        
-        // Interval range: ~5ms (fastest) to ~2000ms (slowest)
-        // Column range: ~1 (slowest) to ~width/3 (fastest)
-        
-        // Limit intervalMs to avoid division by zero (safety)
-        float interval = std::max((float)_intervalMs, 5.0f);
-        
-        // Calculate exponential factor - more dramatic curve for better visual effect
-        // This yields approximately 1 column at 2000ms and width/3 columns at 5ms
-        float exponentialFactor = 15.0f * exp(-0.003f * interval);
-        
-        // Ensure we move at least 1 column, but never too many
-        int columnsPerUpdate = std::max(1, (int)exponentialFactor);
-        columnsPerUpdate = std::min(columnsPerUpdate, _width / 3);
-        
-        // Apply column movement with continuous scaling
+        // Move to the next column in the current wipe direction
         if (_currentWipeDirection == LEFT_TO_RIGHT) {
-            _currentWipeColumn += columnsPerUpdate;
+            _currentWipeColumn++;
+            
+            // Check if we've completed the wipe
             if (_currentWipeColumn >= _width) {
                 _isWiping = false;
                 _needsNewGrid = true;
             }
-        } else {
-            _currentWipeColumn -= columnsPerUpdate;
+        } else { // RIGHT_TO_LEFT
+            _currentWipeColumn--;
+            
+            // Check if we've completed the wipe
             if (_currentWipeColumn < 0) {
                 _isWiping = false;
                 _needsNewGrid = true;
@@ -161,7 +153,11 @@ void GameOfLifeAnimation::update() {
         _needsNewGrid = true;
     }
 
+    // IMPORTANT: Reset the timer for the next column update
+    // This is what controls the speed of the column wipe effect
     _lastUpdateTime = currentTime;
+    
+    // Show the updated LEDs
     FastLED.show();
 }
 
@@ -255,33 +251,48 @@ void GameOfLifeAnimation::randomize(uint8_t density) {
 
 void GameOfLifeAnimation::drawGrid() {
     if (!_grid1 || !_colorMap) return;
-
+    
+    // First draw all cells in their final state (the current game state)
+    // This ensures that all cells up to the current wipe position show their proper state
     for (int y = 0; y < _height; y++) {
-        // Only process the current wipe column
-        int x = _currentWipeColumn;
-        
-        if (getCellState(_grid1, x, y)) {
-            const int ledIndex = mapXYtoLED(x, y);
-            if (ledIndex >= 0 && ledIndex < _numLeds) {
-                CRGB newColor = _colorMap[getCellIndex(x, y)];
-                newColor.nscale8(_brightness);
-                
-                // Proper CRGB comparison
-                if (leds[ledIndex].r != newColor.r || 
-                    leds[ledIndex].g != newColor.g || 
-                    leds[ledIndex].b != newColor.b) {
-                    leds[ledIndex] = newColor;
-                }
+        for (int x = 0; x < _width; x++) {
+            // For the wipe effect, only show the cells up to the current wipe position
+            // Skip anything beyond the current column in the wipe direction
+            if ((_currentWipeDirection == LEFT_TO_RIGHT && x > _currentWipeColumn) ||
+                (_currentWipeDirection == RIGHT_TO_LEFT && x < _currentWipeColumn)) {
+                continue;
             }
-        } else {
+            
             const int ledIndex = mapXYtoLED(x, y);
             if (ledIndex >= 0 && ledIndex < _numLeds) {
-                // Proper comparison to black
-                if (leds[ledIndex].r != 0 || 
-                    leds[ledIndex].g != 0 || 
-                    leds[ledIndex].b != 0) {
+                if (getCellState(_grid1, x, y)) {
+                    // Draw the active cell with its proper color
+                    leds[ledIndex] = _colorMap[getCellIndex(x, y)];
+                    leds[ledIndex].nscale8(_brightness);
+                } else {
+                    // Empty cell is black
                     leds[ledIndex] = CRGB::Black;
                 }
+            }
+        }
+    }
+    
+    // Now highlight just the current wipe column with white
+    for (int y = 0; y < _height; y++) {
+        int x = _currentWipeColumn;
+        const int ledIndex = mapXYtoLED(x, y);
+        
+        if (ledIndex >= 0 && ledIndex < _numLeds) {
+            // Always highlight the current column, but show cell state
+            if (getCellState(_grid1, x, y)) {
+                // For active cells, add white to their existing color to make them brighter
+                // Store the original color first
+                CRGB originalColor = leds[ledIndex];
+                // Add a very subtle white highlight effect
+                leds[ledIndex] += CRGB(15, 15, 15);
+            } else {
+                // For empty cells, make them a very dim white to show column position
+                leds[ledIndex] = CRGB(12, 12, 12); // Very dim white for empty cells
             }
         }
     }

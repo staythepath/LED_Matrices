@@ -205,7 +205,8 @@ void LEDManager::configureCurrentAnimation() {
         anim->setRotationAngle2(rotationAngle2);
         anim->setRotationAngle3(rotationAngle3);
         anim->setPanelOrder(panelOrder);
-        anim->setUpdateInterval(map(ledUpdateInterval, 10, 1500, 0, 255));
+        // Pass the actual interval in milliseconds directly to ensure proper speed control
+        anim->setUpdateInterval(ledUpdateInterval);
         anim->setAllPalettes(&ALL_PALETTES);
         anim->setCurrentPalette(currentPalette);
     }
