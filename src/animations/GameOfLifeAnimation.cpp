@@ -97,39 +97,89 @@ void GameOfLifeAnimation::begin() {
 
 void GameOfLifeAnimation::update() {
     if (!_grid1 || !_grid2 || !_colorMap) return;
-
+    
     unsigned long currentTime = millis();
     
-    // Calculate column delay based on total wipe time
-    _columnDelay = _totalWipeTime / (_width); // *2 for both directions
+    // Use _intervalMs directly for timing to ensure speed slider works properly
+    if (currentTime - _lastUpdateTime < _intervalMs) return;
     
-    if (currentTime - _lastUpdateTime < _columnDelay) return;
+    // CONTINUOUS APPROACH: Use the same animation logic at all speeds
+    // with continuous exponential scaling for smooth transitions
     
+    // State machine logic - either calculate new generation or continue wiping
     if (_needsNewGrid) {
+        // Start of animation cycle - calculate new generation
         calculateNextGrid();
         _needsNewGrid = false;
         _isWiping = true;
+        
+        // Always alternate wipe direction for visual interest
+        _currentWipeDirection = (_currentWipeDirection == LEFT_TO_RIGHT) ? RIGHT_TO_LEFT : LEFT_TO_RIGHT;
         _currentWipeColumn = (_currentWipeDirection == LEFT_TO_RIGHT) ? 0 : _width - 1;
     }
     else if (_isWiping) {
+        // CONTINUOUS SCALING: Calculate columns per update using an exponential curve
+        // that smoothly transitions from 1 column (slow) to many columns (fast)
+        
+        // Base formula: f(x) = a * e^(-bx)
+        // Where 'x' is _intervalMs, and result is columns per update
+        
+        // Interval range: ~5ms (fastest) to ~2000ms (slowest)
+        // Column range: ~1 (slowest) to ~width/3 (fastest)
+        
+        // Limit intervalMs to avoid division by zero (safety)
+        float interval = std::max((float)_intervalMs, 5.0f);
+        
+        // Calculate exponential factor - more dramatic curve for better visual effect
+        // This yields approximately 1 column at 2000ms and width/3 columns at 5ms
+        float exponentialFactor = 15.0f * exp(-0.003f * interval);
+        
+        // Ensure we move at least 1 column, but never too many
+        int columnsPerUpdate = std::max(1, (int)exponentialFactor);
+        columnsPerUpdate = std::min(columnsPerUpdate, _width / 3);
+        
+        // Apply column movement with continuous scaling
         if (_currentWipeDirection == LEFT_TO_RIGHT) {
-            if (++_currentWipeColumn >= _width) {
+            _currentWipeColumn += columnsPerUpdate;
+            if (_currentWipeColumn >= _width) {
                 _isWiping = false;
                 _needsNewGrid = true;
-                _currentWipeDirection = RIGHT_TO_LEFT;
             }
         } else {
-            if (--_currentWipeColumn < 0) {
+            _currentWipeColumn -= columnsPerUpdate;
+            if (_currentWipeColumn < 0) {
                 _isWiping = false;
                 _needsNewGrid = true;
-                _currentWipeDirection = LEFT_TO_RIGHT;
             }
         }
+        
+        // Draw the grid with current wipe position
+        drawGrid();
+    }
+    else {
+        // Shouldn't normally reach here, but as a fallback:
+        _needsNewGrid = true;
     }
 
     _lastUpdateTime = currentTime;
-    drawGrid();
     FastLED.show();
+}
+
+// Helper method to draw the full grid at once (for high speeds)
+void GameOfLifeAnimation::drawFullGrid() {
+    for (int y = 0; y < _height; y++) {
+        for (int x = 0; x < _width; x++) {
+            const int ledIndex = mapXYtoLED(x, y);
+            if (ledIndex >= 0 && ledIndex < _numLeds) {
+                if (getCellState(_grid1, x, y)) {
+                    leds[ledIndex] = _colorMap[getCellIndex(x, y)];
+                    leds[ledIndex].nscale8(_brightness);
+                } else {
+                    leds[ledIndex] = CRGB::Black;
+                }
+            }
+        }
+    }
 }
 
 void GameOfLifeAnimation::calculateNextGrid() {
@@ -316,14 +366,29 @@ CRGB GameOfLifeAnimation::getNewColor() const {
 }
 
 void GameOfLifeAnimation::setUpdateInterval(unsigned long intervalMs) {
-    // Set the update interval and total wipe time
+    // Simply store the update interval - keep this direct and consistent
     _intervalMs = intervalMs;
-    _totalWipeTime = intervalMs;
     
-    // Precompute the column delay since _totalWipeTime and _width don't change between frames.
+    // For consistent wipe effect timing that doesn't affect the base speed,
+    // we'll use a fixed multiplier that's appropriate for the speed range
+    if (intervalMs < 25) {
+        // At fast speeds, don't bother with wipe effects
+        // The wipe time doesn't matter since we bypass it in update() anyway
+        _totalWipeTime = 50; // Just a placeholder value
+    } else {
+        // For slower speeds, make wipe time proportional but not excessive
+        _totalWipeTime = intervalMs * 2;
+    }
+    
+    // Precompute the column delay for wipe effect
     _columnDelay = _totalWipeTime / _width;
     
-    _lastUpdateTime = millis();
+    // Debug info
+    Serial.printf("Game of Life speed: intervalMs=%lu, totalWipe=%lu\n", 
+                 _intervalMs, _totalWipeTime);
+    
+    // Make sure we respond immediately to speed changes
+    _lastUpdateTime = millis() - _intervalMs;
 }
 
 

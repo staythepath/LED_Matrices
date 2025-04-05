@@ -121,13 +121,35 @@ void LEDManager::configureCurrentAnimation() {
     
     // Configure the animation based on its type
     if (_currentAnimation->isBlink()) {
-        static_cast<BlinkAnimation*>(_currentAnimation)->setInterval(map(ledUpdateInterval, 10, 1500, 0, 255));
-    } else if (_currentAnimation->isTraffic()) {
-        static_cast<TrafficAnimation*>(_currentAnimation)->setUpdateInterval(map(ledUpdateInterval, 10, 1500, 0, 255));
-    } else if (_currentAnimation->isRainbowWave()) {
-        static_cast<RainbowWaveAnimation*>(_currentAnimation)->setUpdateInterval(map(ledUpdateInterval, 10, 1500, 0, 255));
-    } else if (_currentAnimation->isGameOfLife()) {
-        static_cast<GameOfLifeAnimation*>(_currentAnimation)->setUpdateInterval(map(ledUpdateInterval, 10, 1500, 0, 255));
+        BlinkAnimation* anim = static_cast<BlinkAnimation*>(_currentAnimation);
+        // Direct setting for faster animations, especially for Blink
+        anim->setInterval(ledUpdateInterval);
+        Serial.printf("Blink animation speed set to interval: %lu ms\n", ledUpdateInterval);
+    } 
+    else if (_currentAnimation->isTraffic()) {
+        TrafficAnimation* anim = static_cast<TrafficAnimation*>(_currentAnimation);
+        anim->setUpdateInterval(ledUpdateInterval);
+        Serial.printf("Traffic animation speed set to interval: %lu ms\n", ledUpdateInterval);
+    } 
+    else if (_currentAnimation->isRainbowWave()) {
+        RainbowWaveAnimation* anim = static_cast<RainbowWaveAnimation*>(_currentAnimation);
+        // RainbowWave needs two parameters - update interval AND speed multiplier
+        anim->setUpdateInterval(8); // Base update rate stays constant
+        
+        // Convert to speed multiplier (higher speed = higher multiplier)
+        float speedMultiplier = map(100 - (_speed), 0, 100, 300, 50) / 100.0f;
+        anim->setSpeedMultiplier(speedMultiplier);
+        Serial.printf("Rainbow animation speed set with multiplier: %.2f\n", speedMultiplier);
+    } 
+    else if (_currentAnimation->isGameOfLife()) {
+        GameOfLifeAnimation* anim = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        anim->setUpdateInterval(ledUpdateInterval);
+        Serial.printf("Game of Life animation speed set to interval: %lu ms\n", ledUpdateInterval);
+    }
+    else if (_currentAnimation->isFirework()) {
+        FireworkAnimation* anim = static_cast<FireworkAnimation*>(_currentAnimation);
+        anim->setUpdateInterval(ledUpdateInterval);
+        Serial.printf("Firework animation speed set to interval: %lu ms\n", ledUpdateInterval);
     }
     
     // Set animation-specific properties
@@ -727,26 +749,31 @@ unsigned long LEDManager::getUpdateSpeed() const {
 void LEDManager::setSpeed(int speed) {
     if (!_currentAnimation) return;
     
-    // Map speed to interval (3-1500ms)
-    unsigned long intervalMs = speed <= 50 
-        ? 3 + (speed / 50.0) * 47  // Linear mapping for 0-50 -> 3-50ms
-        : 50 + pow((speed - 50) / 50.0, 2) * 1450;  // Quadratic mapping for 50-100 -> 50-1500ms
+    // Validate the input range
+    if (speed < 0) speed = 0;
+    if (speed > 100) speed = 100;
     
-    // Cast to int to match the frontend's expected type
-    intervalMs = static_cast<unsigned long>(intervalMs);
-    
-    // Set the interval based on the animation type
-    if (_currentAnimation->isBlink()) {
-        static_cast<BlinkAnimation*>(_currentAnimation)->setInterval(intervalMs);
-    } else if (_currentAnimation->isTraffic()) {
-        static_cast<TrafficAnimation*>(_currentAnimation)->setUpdateInterval(intervalMs);
-    } else if (_currentAnimation->isRainbowWave()) {
-        static_cast<RainbowWaveAnimation*>(_currentAnimation)->setUpdateInterval(intervalMs);
-    } else if (_currentAnimation->isGameOfLife()) {
-        static_cast<GameOfLifeAnimation*>(_currentAnimation)->setUpdateInterval(intervalMs);
-    }
-    
+    // Store the current speed value
     _speed = speed;
+    
+    // Use a logarithmic mapping for smoother control across the range
+    // This provides finer control at slower speeds and coarser at faster speeds
+    const float minInterval = 5.0;   // Fastest animation at speed 100 (5ms minimum)
+    const float maxInterval = 2000.0; // Slowest animation at speed 0 (2000ms)
+    
+    // Map slider value 0-100 to a logarithmic scale
+    float normalizedSpeed = speed / 100.0f; // 0.0 to 1.0
+    float logMin = log10(minInterval);
+    float logMax = log10(maxInterval);
+    float logInterval = logMax + normalizedSpeed * (logMin - logMax);
+    
+    // Convert back from log scale to linear scale
+    ledUpdateInterval = pow(10, logInterval);
+    
+    Serial.printf("Speed set to %d, update interval: %lu ms\n", speed, ledUpdateInterval);
+    
+    // Apply the configuration to ensure speed is immediately applied to all animations
+    configureCurrentAnimation();
 }
 
 int LEDManager::getAnimation() const {

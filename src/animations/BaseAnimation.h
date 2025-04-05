@@ -39,6 +39,7 @@ public:
     virtual bool isTraffic() const { return false; }
     virtual bool isRainbowWave() const { return false; }
     virtual bool isGameOfLife() const { return false; }
+    virtual bool isFirework() const { return false; }
 
 protected:
     // Shared with derived classes

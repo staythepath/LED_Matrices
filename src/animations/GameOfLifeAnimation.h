@@ -42,6 +42,7 @@ private:
 
     void updateGrid();
     void drawGrid();
+    void drawFullGrid(); // New method to draw the entire grid at once (for high speeds)
     void calculateNextGrid();
     int mapXYtoLED(int x, int y);
     int countLiveCells();

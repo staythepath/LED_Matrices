@@ -31,6 +31,7 @@ public:
     virtual void begin() override;
     virtual void update() override;
     virtual void setBrightness(uint8_t b) override;
+    virtual bool isFirework() const override { return true; }
 
     // Specific methods for this animation
     void setUpdateInterval(unsigned long intervalMs);
