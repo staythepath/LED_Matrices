@@ -419,7 +419,7 @@ void WebServerManager::begin() {
         request->send(200, "text/plain", String(b));
     });
 
-    // 7) setTailLength => param "val" (1..30)
+    // 7) setTailLength => param "val" (0..30)
     _server.on("/api/setTailLength", HTTP_GET, [](AsyncWebServerRequest *request){
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
@@ -432,9 +432,9 @@ void WebServerManager::begin() {
             return;
         }
         int tLen = request->getParam("val")->value().toInt();
-        if(tLen<1 || tLen>30){
+        if(tLen < 0 || tLen > 30){
             releaseLEDManager();
-            request->send(400, "text/plain","Tail length must be 1..30");
+            request->send(400, "text/plain", "Tail length must be 0..30");
             return;
         }
         ledManager.setTailLength(tLen);
@@ -533,7 +533,7 @@ void WebServerManager::begin() {
         request->send(200, "text/plain", String(r,2));
     });
 
-    // 13) setMaxFlakes => param "val" (10..500)
+    // 13) setMaxFlakes => param "val" (1..500)
     _server.on("/api/setMaxFlakes", HTTP_GET, [](AsyncWebServerRequest *request){
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
@@ -546,9 +546,9 @@ void WebServerManager::begin() {
             return;
         }
         int maxF = request->getParam("val")->value().toInt();
-        if(maxF<10 || maxF>500){
+        if(maxF < 1 || maxF > 500){
             releaseLEDManager();
-            request->send(400, "text/plain","Max flakes must be 10..500");
+            request->send(400, "text/plain", "Max flakes must be 1..500");
             return;
         }
         ledManager.setMaxFlakes(maxF);

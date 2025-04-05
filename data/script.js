@@ -191,6 +191,47 @@ function setupUIControls() {
     }, 100));
   }
   
+  // Set up the slider for speed
+  const speedSlider = document.getElementById("sliderSpeed");
+  if (speedSlider) {
+    speedSlider.addEventListener("input", debounce(function() {
+      const value = this.value;
+      updateUIValue("numSpeed", value);
+      
+      // Debug the exact URL we're calling
+      const speedUrl = `/api/setSpeed?val=${value}`;
+      console.log(`DEBUG - Calling API: ${speedUrl}`);
+      
+      // Make the API call with proper error handling
+      fetch(speedUrl)
+        .then(response => {
+          console.log(`DEBUG - Response status: ${response.status}`);
+          const contentType = response.headers.get('content-type');
+          console.log(`DEBUG - Content type: ${contentType}`);
+          
+          if (!response.ok) {
+            // Log the error but don't throw - this allows the UI to continue working
+            log(`Error setting speed: ${response.status} ${response.statusText}`);
+            return response.text().then(text => {
+              console.log(`DEBUG - Error response body: "${text}"`);
+              log(`Server response: ${text}`);
+            });
+          }
+          
+          return response.text().then(text => {
+            console.log(`DEBUG - Success response body: "${text}"`);
+            log(`Successfully set speed to ${value}`);
+          });
+        })
+        .catch(error => {
+          console.log(`DEBUG - Network error: ${error.message}`);
+          log(`Network error setting speed: ${error.message}`);
+        });
+        
+      log(`Setting animation speed to ${value}`);
+    }, 100));
+  }
+  
   // Set up the slider for spawn rate
   const spawnRateSlider = document.getElementById("sliderSpawn");
   if (spawnRateSlider) {
@@ -242,9 +283,9 @@ function setupUIControls() {
       const sliderValue = this.value;
       updateUIValue("numMaxFlakes", sliderValue);
       
-      // Convert slider value (1-100) to API expected range (10-500)
-      // Scale from 1-100 to 10-500 (adjust min to 10, scale max up)
-      const apiValue = Math.floor(10 + (sliderValue - 1) * 4.9);
+      // Convert slider value (1-100) to API expected range (1-500)
+      // Scale from 1-100 to 1-500 (linear scaling)
+      const apiValue = Math.floor(1 + (sliderValue - 1) * 5);
       
       // Debug the exact URL we're calling
       const maxFlakesUrl = `/api/setMaxFlakes?val=${apiValue}`;
@@ -624,8 +665,8 @@ function spawnRateToSlider(apiValue) {
 }
 
 function maxFlakesToSlider(apiValue) {
-  // Convert API value (10-500) to slider value (1-100)
-  return Math.round(((apiValue - 10) / 4.9) + 1);
+  // Convert API value (1-500) to slider value (1-100)
+  return Math.round(((apiValue - 1) / 5) + 1);
 }
 
 // Helper function to visually indicate which controls directly affect the current animation
