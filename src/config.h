@@ -1,6 +1,9 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+// -------------------- Firmware Version --------------------
+#define FIRMWARE_VERSION "2.7.1"
+
 // -------------------- LED Configuration --------------------
 #define LED_PIN     4
 #define NUM_LEDS    768

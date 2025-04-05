@@ -24,7 +24,7 @@ GameOfLifeAnimation::GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, i
       _stagnationCounter(0),
       _lastCellCount(0),
       _panelOrder(1),
-      _totalWipeTime(2000),
+      _totalWipeTime(100),
       _columnDelay(0),
       _rotationAngle1(0),
       _rotationAngle2(0),
@@ -101,7 +101,7 @@ void GameOfLifeAnimation::update() {
     unsigned long currentTime = millis();
     
     // Calculate column delay based on total wipe time
-    _columnDelay = _totalWipeTime / (_width * 2); // *2 for both directions
+    _columnDelay = _totalWipeTime / (_width); // *2 for both directions
     
     if (currentTime - _lastUpdateTime < _columnDelay) return;
     
@@ -316,10 +316,16 @@ CRGB GameOfLifeAnimation::getNewColor() const {
 }
 
 void GameOfLifeAnimation::setUpdateInterval(unsigned long intervalMs) {
+    // Set the update interval and total wipe time
     _intervalMs = intervalMs;
     _totalWipeTime = intervalMs;
+    
+    // Precompute the column delay since _totalWipeTime and _width don't change between frames.
+    _columnDelay = _totalWipeTime / _width;
+    
     _lastUpdateTime = millis();
 }
+
 
 void GameOfLifeAnimation::setAllPalettes(const std::vector<std::vector<CRGB>>* allPalettes) {
     _allPalettes = allPalettes;

@@ -42,7 +42,8 @@ void setup() {
 
     // Initialize logging system
     systemInfo("System starting up...");
-    systemInfo("ESP32 firmware version: " + String(ESP.getSdkVersion()));
+    systemInfo("Firmware Version: " + String(FIRMWARE_VERSION));
+    systemInfo("ESP32 SDK version: " + String(ESP.getSdkVersion()));
     
     // Report initial heap stats
     systemInfo("Initial free heap: " + String(ESP.getFreeHeap()) + " bytes");

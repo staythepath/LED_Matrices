@@ -195,9 +195,43 @@ function setupUIControls() {
   const spawnRateSlider = document.getElementById("sliderSpawn");
   if (spawnRateSlider) {
     spawnRateSlider.addEventListener("input", debounce(function() {
-      const value = this.value;
-      updateUIValue("numSpawn", value);
-      apiQueue.add(`/api/setSpawnRate?val=${value}`);
+      const sliderValue = this.value;
+      updateUIValue("numSpawn", sliderValue);
+      
+      // Convert slider value (1-100) to API expected range (0.0-1.0)
+      const apiValue = (sliderValue / 100).toFixed(2);
+      
+      // Debug the exact URL we're calling
+      const spawnRateUrl = `/api/setSpawnRate?val=${apiValue}`;
+      console.log(`DEBUG - Calling API: ${spawnRateUrl}`);
+      
+      // Make the API call with proper error handling
+      fetch(spawnRateUrl)
+        .then(response => {
+          console.log(`DEBUG - Response status: ${response.status}`);
+          const contentType = response.headers.get('content-type');
+          console.log(`DEBUG - Content type: ${contentType}`);
+          
+          if (!response.ok) {
+            // Log the error but don't throw - this allows the UI to continue working
+            log(`Error setting spawn rate: ${response.status} ${response.statusText}`);
+            return response.text().then(text => {
+              console.log(`DEBUG - Error response body: "${text}"`);
+              log(`Server response: ${text}`);
+            });
+          }
+          
+          return response.text().then(text => {
+            console.log(`DEBUG - Success response body: "${text}"`);
+            log(`Successfully set spawn rate to ${apiValue}`);
+          });
+        })
+        .catch(error => {
+          console.log(`DEBUG - Network error: ${error.message}`);
+          log(`Network error setting spawn rate: ${error.message}`);
+        });
+        
+      log(`Converting spawn rate slider value ${sliderValue} to API value ${apiValue}`);
     }, 100));
   }
   
@@ -205,9 +239,44 @@ function setupUIControls() {
   const maxFlakesSlider = document.getElementById("sliderMaxFlakes");
   if (maxFlakesSlider) {
     maxFlakesSlider.addEventListener("input", debounce(function() {
-      const value = this.value;
-      updateUIValue("numMaxFlakes", value);
-      apiQueue.add(`/api/setMaxFlakes?val=${value}`);
+      const sliderValue = this.value;
+      updateUIValue("numMaxFlakes", sliderValue);
+      
+      // Convert slider value (1-100) to API expected range (10-500)
+      // Scale from 1-100 to 10-500 (adjust min to 10, scale max up)
+      const apiValue = Math.floor(10 + (sliderValue - 1) * 4.9);
+      
+      // Debug the exact URL we're calling
+      const maxFlakesUrl = `/api/setMaxFlakes?val=${apiValue}`;
+      console.log(`DEBUG - Calling API: ${maxFlakesUrl}`);
+      
+      // Make the API call with proper error handling
+      fetch(maxFlakesUrl)
+        .then(response => {
+          console.log(`DEBUG - Response status: ${response.status}`);
+          const contentType = response.headers.get('content-type');
+          console.log(`DEBUG - Content type: ${contentType}`);
+          
+          if (!response.ok) {
+            // Log the error but don't throw - this allows the UI to continue working
+            log(`Error setting max flakes: ${response.status} ${response.statusText}`);
+            return response.text().then(text => {
+              console.log(`DEBUG - Error response body: "${text}"`);
+              log(`Server response: ${text}`);
+            });
+          }
+          
+          return response.text().then(text => {
+            console.log(`DEBUG - Success response body: "${text}"`);
+            log(`Successfully set max flakes to ${apiValue}`);
+          });
+        })
+        .catch(error => {
+          console.log(`DEBUG - Network error: ${error.message}`);
+          log(`Network error setting max flakes: ${error.message}`);
+        });
+        
+      log(`Converting max flakes slider value ${sliderValue} to API value ${apiValue}`);
     }, 100));
   }
   
@@ -249,7 +318,13 @@ function setupUIControls() {
 function updateUIValue(targetId, value) {
   const element = document.getElementById(targetId);
   if (element) {
-    element.innerHTML = value;
+    // For input elements, set the value property
+    if (element.tagName === 'INPUT') {
+      element.value = value;
+    } else {
+      // For other elements (like span, div), use innerHTML
+      element.innerHTML = value;
+    }
   }
 }
 
@@ -293,7 +368,13 @@ function loadAnimations(callback) {
           sel.addEventListener("change", function() {
             const val = this.value;
             apiQueue.add(`/api/setAnimation?val=${val}`);
+            
+            // Enable/disable controls based on animation type
+            updateControlsForAnimation(val);
           });
+          
+          // Initial control state based on current animation
+          updateControlsForAnimation(data.current);
         }
       } catch (err) {
         log("Error populating animations: " + err.message);
@@ -410,8 +491,13 @@ function loadSettings(callback) {
       setSliderValue("sliderBrightness", brightness, "numBrightness");
       setSliderValue("sliderFade", fade, "numFade");
       setSliderValue("sliderTail", tail, "numTail");
-      setSliderValue("sliderSpawn", spawn, "numSpawn");
-      setSliderValue("sliderMaxFlakes", maxFlakes, "numMaxFlakes");
+      // Convert spawn rate from API format (0.0-1.0) to slider format (1-100)
+      const spawnSliderValue = spawnRateToSlider(parseFloat(spawn));
+      setSliderValue("sliderSpawn", spawnSliderValue, "numSpawn");
+      
+      // Convert max flakes from API format (10-500) to slider format (1-100)
+      const maxFlakesSliderValue = maxFlakesToSlider(parseInt(maxFlakes));
+      setSliderValue("sliderMaxFlakes", maxFlakesSliderValue, "numMaxFlakes");
       updateSpeedUI(speed);
 
       // Force panel count to 2
@@ -531,6 +617,45 @@ function speedToSliderVal(spd) {
   }
 }
 
+// Helper functions for spawn rate and max flakes conversion
+function spawnRateToSlider(apiValue) {
+  // Convert API value (0.0-1.0) to slider value (1-100)
+  return Math.round(apiValue * 100);
+}
+
+function maxFlakesToSlider(apiValue) {
+  // Convert API value (10-500) to slider value (1-100)
+  return Math.round(((apiValue - 10) / 4.9) + 1);
+}
+
+// Helper function to visually indicate which controls directly affect the current animation
+function updateControlsForAnimation(animationIndex) {
+  // Convert to number if it's a string
+  const index = parseInt(animationIndex, 10);
+  
+  // Get control elements containers
+  const spawnRateContainer = document.getElementById("sliderSpawn")?.closest(".slider-container");
+  const maxFlakesContainer = document.getElementById("sliderMaxFlakes")?.closest(".slider-container");
+  
+  // Check if Traffic animation is selected (only one that visibly uses these controls)
+  const isTraffic = (index === 0);
+  
+  // Update visual indicators but don't disable the controls
+  if (spawnRateContainer) {
+    spawnRateContainer.style.opacity = isTraffic ? "1" : "0.7";
+    spawnRateContainer.title = isTraffic ? "Controls car spawn rate" : 
+        "Values are saved but only visibly affect the Traffic animation";
+  }
+  
+  if (maxFlakesContainer) {
+    maxFlakesContainer.style.opacity = isTraffic ? "1" : "0.7";
+    maxFlakesContainer.title = isTraffic ? "Controls maximum number of cars" : 
+        "Values are saved but only visibly affect the Traffic animation";
+  }
+  
+  log(`Controls updated for animation ${index}: ${isTraffic ? "Highlighted" : "Dimmed"} spawn rate and max flakes controls`);
+}
+
 const sSpeed = document.getElementById("sliderSpeed");
 const tSpeed = document.getElementById("txtSpeed");
 if (sSpeed && tSpeed) {
@@ -623,7 +748,7 @@ function sendValueToApi(apiUrl, val) {
   });
 }
 
-// brightness, fade, tail, spawn, maxFlakes
+// brightness, fade, tail - we skip spawn & maxFlakes as they have custom handlers already
 bindSliderAndNumber(
   "sliderBrightness",
   "numBrightness",
@@ -633,14 +758,11 @@ bindSliderAndNumber(
 );
 bindSliderAndNumber("sliderFade", "numFade", "setFadeAmount", 0, 255);
 bindSliderAndNumber("sliderTail", "numTail", "setTailLength", 1, 32);
-bindSliderAndNumber("sliderSpawn", "numSpawn", "setSpawnRate", 0, 100);
-bindSliderAndNumber(
-  "sliderMaxFlakes",
-  "numMaxFlakes",
-  "setMaxFlakes",
-  1,
-  100
-);
+
+// IMPORTANT: Don't call bindSliderAndNumber for spawn rate and max flakes sliders
+// These have custom handlers in setupUIControls that do proper value conversion
+// bindSliderAndNumber("sliderSpawn", "numSpawn", "setSpawnRate", 0, 100);
+// bindSliderAndNumber("sliderMaxFlakes", "numMaxFlakes", "setMaxFlakes", 1, 100);
 
 /************************************************
  * Panel Count
