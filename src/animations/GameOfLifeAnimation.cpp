@@ -128,6 +128,58 @@ void GameOfLifeAnimation::update() {
     if (!_grid1 || !_grid2 || !_colorMap) return;
     
     unsigned long currentTime = millis();
+    // More aggressive check for phantom cells and stuck transitions
+    static uint32_t lastCleanupTime = 0;
+    const uint32_t CLEANUP_INTERVAL_MS = 1000; // Check every second (more frequent)
+    
+    if (currentTime - lastCleanupTime > CLEANUP_INTERVAL_MS) {
+        lastCleanupTime = currentTime;
+        
+        // Check for cells that have been in transition for too long AND for phantom cells
+        for (int i = 0; i < _gridSize; i++) {
+            // Get coordinates for this cell
+            int x = i % _width;
+            int y = i / _width;
+            
+            // First check if it's a legitimate live cell
+            bool isLiveCell = getCellState(_grid1, x, y);
+            bool isDyingCell = getCellState(_dyingCells, x, y);
+            
+            if (!isLiveCell && !isDyingCell) {
+                // This is not a live or dying cell - it shouldn't have any color or state
+                // This is the most aggressive fix for phantom cells
+                _colorMap[i] = CRGB::Black;
+                _transitionMap[i] = CRGB::Black;
+                _fadeStartTime[i] = 0;
+                _fadeDuration[i] = 0;
+                _highlightIntensity[i] = 0;
+                setCellState(_newBornCells, x, y, false);
+            } else {
+                // For actual live cells, check for stuck transitions
+                uint32_t fadeStartedAt = _fadeStartTime[i];
+                if (fadeStartedAt > 0 && currentTime - fadeStartedAt > 3000) {
+                    // This cell has been transitioning for over 3 seconds - force completion
+                    _fadeStartTime[i] = 0;
+                    _highlightIntensity[i] = 0;
+                    
+                    // If it's a live cell, check for problematic colors
+                    if (isLiveCell) {
+                        // Check for gray/white colors that might be stuck
+                        if ((_colorMap[i].r == _colorMap[i].g && _colorMap[i].g == _colorMap[i].b && _colorMap[i].r > 0) ||
+                            (_colorMap[i].r > 200 && _colorMap[i].g > 200 && _colorMap[i].b > 200)) {
+                            // Replace gray/white with a proper palette color
+                            _colorMap[i] = getNewColor();
+                        }
+                    } else if (isDyingCell) {
+                        // Finish the dying process
+                        setCellState(_dyingCells, x, y, false);
+                        _transitionMap[i] = CRGB::Black;
+                        _colorMap[i] = CRGB::Black;
+                    }
+                }
+            }
+        }
+    }
     
     // CRITICAL: The _intervalMs directly controls how quickly we process columns
     // For speed=0 (slowest): _intervalMs ≈ 2000ms = 2 seconds per column
@@ -398,11 +450,14 @@ void GameOfLifeAnimation::calculateNextGrid() {
                     setCellState(_dyingCells, x, y, true);
                     
                     // Store its current color in the transition map for fade-out effect
-                    // Check if it has a valid color first
+                    // Store current color for the fade-out
+                    // If it's already black or doesn't have a valid color, don't bother with transition
                     if (_colorMap[idx].r == 0 && _colorMap[idx].g == 0 && _colorMap[idx].b == 0) {
-                        // If it doesn't have a proper color, use a dim magenta
-                        _transitionMap[idx] = CRGB(50, 0, 50);
+                        // Skip the transition for black cells
+                        _transitionMap[idx] = CRGB::Black;
+                        _fadeDuration[idx] = 1; // Very short duration to complete quickly
                     } else {
+                        // Use the current color as starting point for fade
                         _transitionMap[idx] = _colorMap[idx];
                     }
                     
@@ -424,7 +479,8 @@ void GameOfLifeAnimation::calculateNextGrid() {
                     // This is a newly born cell
                     CRGB targetColor = getNewColor(); // Get the color this cell will eventually have
                     _colorMap[idx] = targetColor;     // Store the target color
-                    _transitionMap[idx] = CRGB(255, 255, 255); // Use bright white
+                    // Use a pure saturated white for new cells - any other color can cause stuck cells
+                    _transitionMap[idx] = CRGB(255, 255, 255);
                     
                     // Reset any lingering death fade state
                     setCellState(_dyingCells, x, y, false);
@@ -479,6 +535,12 @@ void GameOfLifeAnimation::randomize(uint8_t density) {
     memset(_highlightIntensity, 0, _gridSize);
     memset(_fadeStartTime, 0, _gridSize * sizeof(uint32_t));
     memset(_fadeDuration, 0, _gridSize * sizeof(uint32_t));
+    
+    // Also clear all transition maps to avoid stuck colors
+    for (int i = 0; i < _gridSize; i++) {
+        _transitionMap[i] = CRGB::Black;
+        _colorMap[i] = CRGB::Black;
+    }
     for (int y = 0; y < _height; y++) {
         for (int x = 0; x < _width; x++) {
             if (random(100) < density) {
@@ -526,6 +588,10 @@ void GameOfLifeAnimation::drawGrid() {
                             // Fade is complete, draw target color
                             leds[ledIndex] = _colorMap[idx];
                             leds[ledIndex].nscale8(_brightness);
+                            
+                            // Reset transition state once fully faded
+                            _highlightIntensity[idx] = 0;
+                            _fadeStartTime[idx] = 0;
                         } else {
                             // Calculate proportional fade (0-255)
                             uint8_t fadeProgress = (fadeTime * 255) / FADE_DURATION_MS;
@@ -533,6 +599,15 @@ void GameOfLifeAnimation::drawGrid() {
                             
                             // Blend between target color and white based on fade progress
                             CRGB targetColor = _colorMap[idx];
+                            
+                            // Ensure the target color isn't gray or white (potential stuck color)
+                            if ((targetColor.r == targetColor.g && targetColor.g == targetColor.b && targetColor.r > 0) ||
+                                (targetColor.r > 200 && targetColor.g > 200 && targetColor.b > 200)) {
+                                // Replace gray/white with a palette color
+                                targetColor = getNewColor();
+                                _colorMap[idx] = targetColor; // Update for future frames
+                            }
+                            
                             targetColor.nscale8(_brightness);
                             CRGB transitionColor = _transitionMap[idx];
                             leds[ledIndex] = blend(targetColor, transitionColor, whiteAmount);
@@ -560,21 +635,52 @@ void GameOfLifeAnimation::drawGrid() {
                             
                             // Clear the dying flag since the animation is complete
                             setCellState(_dyingCells, x, y, false);
+                            
+                            // Reset ALL transition-related variables for this cell
+                            // This is critical to ensure no color data remains
+                            _fadeStartTime[idx] = 0;
+                            _fadeDuration[idx] = 0;
+                            _highlightIntensity[idx] = 0;
+                            _transitionMap[idx] = CRGB::Black;
+                            _colorMap[idx] = CRGB::Black; // Also clear the color map
                         } else {
                             // Calculate proportional fade (0-255)
                             uint8_t fadeProgress = (fadeTime * 255) / FADE_DURATION_MS;
-                            
-                            // Blend from original color to black based on fade progress
+                                                        // Get the original color this cell had before dying
                             CRGB originalColor = _transitionMap[idx];
                             
-                            // Safety check for invalid colors
+                            // Safety check for invalid/black colors - skip transition
                             if (originalColor.r == 0 && originalColor.g == 0 && originalColor.b == 0) {
-                                originalColor = CRGB(50, 0, 50); // Use magenta as fallback
+                                // If there's no color to fade from, don't transition
+                                setCellState(_dyingCells, x, y, false);
+                                _fadeStartTime[idx] = 0;
+                                _highlightIntensity[idx] = 0;
+                                _transitionMap[idx] = CRGB::Black;
+                                _colorMap[idx] = CRGB::Black; // Ensure both are black
+                                leds[ledIndex] = CRGB::Black; // Draw black immediately
+                                continue; // Skip the rest of this cell's processing
                             }
                             
-                            originalColor.nscale8(_brightness);
-                            originalColor.nscale8(255 - fadeProgress); // Fade to black
+                            // Apply fade based on progress (255 = completely faded to black)
+                            uint8_t remaining = 255 - fadeProgress;
                             
+                            // As cells get closer to black, make sure they're REALLY heading to pure black
+                            // This prevents cells from getting stuck with a faint color
+                            if (remaining < 64) {
+                                // When we're close to black, drop even faster to ensure complete darkness
+                                remaining = remaining / 2;
+                            }
+                            
+                            // Apply brightness and fade scaling
+                            originalColor.nscale8(_brightness);
+                            originalColor.nscale8(remaining);
+                            
+                            // For almost-faded cells, ensure they're completely black
+                            if (remaining < 10) {
+                                originalColor = CRGB::Black;
+                            }
+                            
+                            // Set the LED to the calculated color
                             leds[ledIndex] = originalColor;
                         }
                     }
@@ -586,70 +692,41 @@ void GameOfLifeAnimation::drawGrid() {
         }
     }
     
-    // Now highlight just the current wipe column with white
+    // Now highlight just the current wipe column with a subtle overlay
+    // This is ONLY a visual effect and doesn't modify any persistent cell colors
     for (int y = 0; y < _height; y++) {
         int x = _currentWipeColumn;
         const int ledIndex = mapXYtoLED(x, y);
         
         if (ledIndex >= 0 && ledIndex < _numLeds) {
-            // Always highlight the current column, but show cell state
-            if (getCellState(_grid1, x, y)) {
-                // Get the cell index for this position
-                uint8_t idx = getCellIndex(x, y);
+            // NEVER color cells in the wipe column to avoid phantom cells
+            int idx = getCellIndex(x, y);
+            
+            // Check if there's a live cell at this position
+            bool isLiveCell = getCellState(_grid1, x, y);
+            bool isDyingCell = getCellState(_dyingCells, x, y);
+            
+            if (isLiveCell) {
+                // For live cells, PRESERVE their original color but add a subtle overlay
+                // This is a temporary visual-only effect that won't persist
+                CRGB temp = leds[ledIndex];
                 
-                // Check if this cell is in transition (newly born)
-                uint8_t transitionProgress = _highlightIntensity[idx];
-                
-                if (transitionProgress > 0) {
-                    // This cell is marked for transition (255) or actively fading
-                    
-                    // Get the current time for fade calculations
-                    uint32_t currentTime = millis();
-                    uint32_t fadeStartedAt = _fadeStartTime[idx];
-                    
-                    // Calculate progress for fading (0-255 where 0 = no fade, 255 = complete fade)
-                    uint8_t fadeProgress = 0;
-                    uint8_t whiteAmount = 255; // Start fully white
-                    
-                    if (fadeStartedAt > 0) { // Has this cell started fading?
-                        // Calculate how long this cell has been fading
-                        uint32_t fadeTime = currentTime - fadeStartedAt;
-                        // Get this cell's custom fade duration
-                        const uint32_t FADE_DURATION_MS = _fadeDuration[idx];
-                        
-                        if (fadeTime >= FADE_DURATION_MS) {
-                            // Fade is complete
-                            fadeProgress = 255;
-                            whiteAmount = 0;
-                        } else {
-                            // Calculate proportional fade (0-255)
-                            fadeProgress = (fadeTime * 255) / FADE_DURATION_MS;
-                            whiteAmount = 255 - fadeProgress;
-                        }
-                    }
-                    
-                    // Get the target color with brightness applied
-                    CRGB targetColor = _colorMap[idx];
-                    targetColor.nscale8(_brightness);
-                    
-                    // Get the white transition color
-                    CRGB transitionColor = _transitionMap[idx];
-                    
-                    // Blend between white and target color based on fade progress
-                    leds[ledIndex] = blend(targetColor, transitionColor, whiteAmount);
-                    
-                    // Add a small white highlight since we're in the current column
-                    leds[ledIndex] += CRGB(15, 15, 15);
-                } else {
-                    // Regular cells get a subtle highlight in the active column
-                    // Use the normal cell color
-                    leds[ledIndex] = _colorMap[idx];
-                    leds[ledIndex].nscale8(_brightness);
-                    leds[ledIndex] += CRGB(15, 15, 15); // Add highlight for active column
-                }
+                // Add JUST 20 to blue to create a subtle highlight that won't become a color
+                temp.b = qadd8(temp.b, 20);
+                leds[ledIndex] = temp;
+            } else if (isDyingCell) {
+                // For dying cells, don't add ANY visual effect - just let them fade naturally
+                // Don't change the color or add any highlights
             } else {
-                // For empty cells, make them a very dim white to show column position
-                leds[ledIndex] = CRGB(12, 12, 12); // Very dim white for empty cells
+                // COMPLETELY EMPTY cell - make sure it has no color data anywhere
+                _colorMap[idx] = CRGB::Black;
+                _transitionMap[idx] = CRGB::Black;
+                _highlightIntensity[idx] = 0;
+                _fadeStartTime[idx] = 0;
+                
+                // Set empty cell color for visual effect - use a pure blue that's very dim
+                // This ensures it won't contribute to any "stuck" cells
+                leds[ledIndex] = CRGB(0, 0, 5); // Extremely dim pure blue
             }
         }
     }
@@ -727,10 +804,22 @@ void GameOfLifeAnimation::setCellState(uint8_t* grid, int x, int y, bool state) 
 }
 
 CRGB GameOfLifeAnimation::getNewColor() const {
+    // Return a palette color if using palette and it's available
     if (_usePalette && _currentPalette && !_currentPalette->empty()) {
         return (*_currentPalette)[random(_currentPalette->size())];
     }
-    return CRGB(random(256), random(256), random(256));
+    
+    // Fallback to a vibrant random color (avoid grays) if no palette
+    // We'll generate pure RGB colors to avoid creating gray tones
+    uint8_t r = random(2) * 255;  // Either 0 or 255
+    uint8_t g = random(2) * 255;  // Either 0 or 255
+    uint8_t b = random(2) * 255;  // Either 0 or 255
+    
+    // Ensure we don't return black (all 0) or white (all 255)
+    if (r == 0 && g == 0 && b == 0) r = 255;  // Avoid black
+    if (r == 255 && g == 255 && b == 255) b = 0;  // Avoid white
+    
+    return CRGB(r, g, b);
 }
 
 void GameOfLifeAnimation::setUpdateInterval(unsigned long intervalMs) {
