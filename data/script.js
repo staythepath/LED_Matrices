@@ -407,15 +407,58 @@ function loadAnimations(callback) {
 
           // Add change handler - IMPORTANT: use 'val' not 'index'
           sel.addEventListener("change", function() {
-            const val = this.value;
-            apiQueue.add(`/api/setAnimation?val=${val}`);
+            const val = parseInt(this.value, 10);
             
-            // Enable/disable controls based on animation type
-            updateControlsForAnimation(val);
+            // Send the animation change request to the API
+            apiQueue.add(`/api/setAnimation?val=${val}`);
+            log(`Animation changed to ${val}`);
+            
+            // Update UI controls based on the new animation
+            // Use our dedicated function for more reliable detection
+            setTimeout(() => {
+              // Add a small delay to ensure the dropdown has updated
+              const isGoL = updateGameOfLifeControls();
+              log(`Animation change handler: Updated controls, isGameOfLife=${isGoL}`);
+            }, 100);
           });
           
-          // Initial control state based on current animation
-          updateControlsForAnimation(data.current);
+          // Initialize controls for the current animation
+          const currentAnimIndex = parseInt(data.current, 10);
+          log(`Initial animation index: ${currentAnimIndex}`);
+          
+          // Use our dedicated function for reliable Game of Life detection
+          // This will also update the UI controls accordingly
+          updateGameOfLifeControls();
+          
+          // Also fetch the initial column skip value if Game of Life is the current animation
+          if (isGameOfLifeAnimation()) {
+            log("Initial animation is Game of Life, fetching current column skip value");
+            
+            fetch("/api/getColumnSkip")
+              .then(response => response.json())
+              .then(data => {
+                // Update the column skip slider with the current value
+                const columnSkipSlider = document.getElementById("sliderColumnSkip");
+                const columnSkipNumber = document.getElementById("numColumnSkip");
+                
+                if (columnSkipSlider && columnSkipNumber && data.value) {
+                  const skipValue = parseInt(data.value, 10);
+                  columnSkipSlider.value = skipValue;
+                  columnSkipNumber.value = skipValue;
+                  log(`Updated column skip controls with initial value: ${skipValue}`);
+                }
+              })
+              .catch(error => {
+                log(`Error fetching initial column skip value: ${error.message}`);
+              });
+          }
+          
+          // Perform a second check after a delay to ensure reliable UI updates
+          setTimeout(() => {
+            // Double-check that Game of Life controls are properly set up
+            const isGoL = updateGameOfLifeControls();
+            log(`Delayed initialization check: isGameOfLife=${isGoL}`);
+          }, 500);
         }
       } catch (err) {
         log("Error populating animations: " + err.message);
@@ -669,6 +712,64 @@ function maxFlakesToSlider(apiValue) {
   return Math.round(((apiValue - 1) / 5) + 1);
 }
 
+// Define animation constants to match the actual animation indexes
+const ANIMATIONS = {
+  TRAFFIC: 0,
+  BLINK: 1,
+  RAINBOW_WAVE: 2,
+  FIREWORK: 3,
+  GAME_OF_LIFE: 4 // GameOfLife is index 4 according to the log
+};
+
+// Function to check if current animation is Game of Life
+// This is a separate, dedicated function to ensure reliable detection
+function isGameOfLifeAnimation() {
+  try {
+    // Get current animation from dropdown
+    const animSelect = document.getElementById("selAnimation");
+    if (!animSelect) return false;
+    
+    // Check by index (most reliable method)
+    const selectedIndex = parseInt(animSelect.value, 10);
+    
+    // Basic check - animation index 4 is Game of Life
+    return (selectedIndex === 4);
+  } catch (err) {
+    // If any error occurs, log it and return false
+    log("Error in isGameOfLifeAnimation: " + err.message);
+    return false;
+  }
+}
+
+// Function to update UI visibility based on current animation
+function updateGameOfLifeControls() {
+  try {
+    // Check if current animation is Game of Life
+    const isGoL = isGameOfLifeAnimation();
+    
+    // Get DOM elements
+    const columnSkipContainer = document.getElementById("columnSkipContainer");
+    const speedLabel = document.getElementById("speedLabel");
+    
+    // Update column skip slider visibility
+    if (columnSkipContainer) {
+      columnSkipContainer.style.display = isGoL ? "flex" : "none";
+      log(`Column skip container display set to: ${isGoL ? "flex" : "none"}`);
+    }
+    
+    // Set speed label consistently to "Speed:"
+    if (speedLabel) {
+      speedLabel.textContent = "Speed:";
+    }
+    
+    return isGoL;
+  } catch (err) {
+    // Handle any errors gracefully
+    log("Error in updateGameOfLifeControls: " + err.message);
+    return false;
+  }
+}
+
 // Helper function to visually indicate which controls directly affect the current animation
 function updateControlsForAnimation(animationIndex) {
   // Convert to number if it's a string
@@ -678,8 +779,14 @@ function updateControlsForAnimation(animationIndex) {
   const spawnRateContainer = document.getElementById("sliderSpawn")?.closest(".slider-container");
   const maxFlakesContainer = document.getElementById("sliderMaxFlakes")?.closest(".slider-container");
   
-  // Check if Traffic animation is selected (only one that visibly uses these controls)
-  const isTraffic = (index === 0);
+  // Debug which animation index is selected
+  log(`Animation index selected: ${index}`);
+  
+  // Update Game of Life specific controls
+  const isGameOfLife = updateGameOfLifeControls();
+  
+  // Check if Traffic animation is selected
+  const isTraffic = (index === ANIMATIONS.TRAFFIC);
   
   // Update visual indicators but don't disable the controls
   if (spawnRateContainer) {
@@ -695,6 +802,9 @@ function updateControlsForAnimation(animationIndex) {
   }
   
   log(`Controls updated for animation ${index}: ${isTraffic ? "Highlighted" : "Dimmed"} spawn rate and max flakes controls`);
+  if (isGameOfLife) {
+    log("Game of Life animation selected: showing column skip slider");
+  }
 }
 
 const sSpeed = document.getElementById("sliderSpeed");
@@ -799,6 +909,23 @@ bindSliderAndNumber(
 );
 bindSliderAndNumber("sliderFade", "numFade", "setFadeAmount", 0, 255);
 bindSliderAndNumber("sliderTail", "numTail", "setTailLength", 1, 32);
+
+// Column skip slider for Game of Life animation
+bindSliderAndNumber(
+  "sliderColumnSkip",
+  "numColumnSkip",
+  "setColumnSkip",
+  1,
+  5
+);
+
+// Explicitly check for the column skip container
+const columnSkipContainer = document.getElementById("columnSkipContainer");
+if (columnSkipContainer) {
+  log("Found column skip container in DOM");
+} else {
+  log("ERROR: Column skip container NOT found in DOM");
+}
 
 // IMPORTANT: Don't call bindSliderAndNumber for spawn rate and max flakes sliders
 // These have custom handlers in setupUIControls that do proper value conversion

@@ -18,6 +18,7 @@ public:
     // Speed control using multiplier approach
     void setUpdateInterval(unsigned long intervalMs);
     void setSpeedMultiplier(float multiplier);
+    void setColumnSkip(int columnSkip); // Control how many columns to skip during animation
 
     void randomize(uint8_t density = 33);
     
@@ -94,6 +95,7 @@ private:
     uint32_t _intervalMs;
     uint32_t _lastUpdateTime;
     float _speedMultiplier;  // Controls how fast the wipe animation moves
+    int _columnSkipCount;    // Number of columns to skip when wiping
 
     // Game state
     int _stagnationCounter;

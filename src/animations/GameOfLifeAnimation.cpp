@@ -106,6 +106,7 @@ void GameOfLifeAnimation::begin() {
     _currentWipeColumn = 0;
     _isWiping = false;
     _needsNewGrid = true;
+    _columnSkipCount = 1;  // Start with no column skipping
     
     // Draw the initial full grid
     for (int y = 0; y < _height; y++) {
@@ -185,16 +186,12 @@ void GameOfLifeAnimation::setupWipeAnimation() {
 }
 
 void GameOfLifeAnimation::updateWipePosition() {
-    // Calculate how many columns to skip based on the speed multiplier
-    // Higher multiplier = more columns skipped per update
-    // At multiplier=1, we move by 1 column
-    // At higher multipliers, we skip columns proportionally
+    // Use the _columnSkipCount value calculated in updateWipeTimings()
+    // This ensures our column skipping is in sync with our speed calculations
     
-    int columnsToSkip = max(1, (int)(_speedMultiplier + 0.5f));
-    
-    // Move multiple columns in the current wipe direction
+    // Move columns based on the skip count and direction
     if (_currentWipeDirection == LEFT_TO_RIGHT) {
-        _currentWipeColumn += columnsToSkip;
+        _currentWipeColumn += _columnSkipCount;
         
         // Check if we've completed the wipe
         if (_currentWipeColumn >= _width) {
@@ -202,7 +199,7 @@ void GameOfLifeAnimation::updateWipePosition() {
             _needsNewGrid = true;
         }
     } else { // RIGHT_TO_LEFT
-        _currentWipeColumn -= columnsToSkip;
+        _currentWipeColumn -= _columnSkipCount;
         
         // Check if we've completed the wipe
         if (_currentWipeColumn < 0) {
@@ -211,10 +208,10 @@ void GameOfLifeAnimation::updateWipePosition() {
         }
     }
     
-    // Debug info at higher speeds
-    if (columnsToSkip > 1) {
-        Serial.printf("GoL: Skipped %d columns (multiplier=%.1f)\n", 
-                      columnsToSkip, _speedMultiplier);
+    // Log column skipping only when we're skipping multiple columns
+    if (_columnSkipCount > 1 && (_lastUpdateTime % 500) == 0) { // Log less frequently
+        Serial.printf("GoL: Using %d column skip at multiplier=%.1f\n", 
+                      _columnSkipCount, _speedMultiplier);
     }
 }
 
@@ -723,22 +720,44 @@ void GameOfLifeAnimation::setSpeedMultiplier(float multiplier) {
     Serial.printf("Game of Life: Speed multiplier set to %.2f\n", _speedMultiplier);
 }
 
+// Set column skip value directly (for separate speed control slider)
+void GameOfLifeAnimation::setColumnSkip(int columnSkip) {
+    // Validate the input range
+    if (columnSkip < 1) columnSkip = 1;
+    if (columnSkip > 5) columnSkip = 5;
+    
+    // Store the column skip value
+    _columnSkipCount = columnSkip;
+    
+    Serial.printf("Game of Life column skip set to %d\n", _columnSkipCount);
+}
+
 // Helper method to update wipe timings based on speed multiplier
 void GameOfLifeAnimation::updateWipeTimings() {
-    // Calculate the total wipe time based on the speed multiplier
-    // Faster speeds (higher multiplier) = shorter wipe time
-    // Base wipe time is 500ms at multiplier=1.0
-    _totalWipeTime = (uint32_t)(500.0f / _speedMultiplier);
+    // Define our thresholds and constants
+    const uint32_t BASE_WIPE_TIME = 500;   // Base wipe time (500ms at multiplier=1.0)
+    const uint32_t MIN_WIPE_TIME = 5;      // Absolute minimum wipe time (hardware limit)
     
-    // Set a minimum wipe time limit to prevent instant wipes
-    if (_totalWipeTime < 5) _totalWipeTime = 5;
+    // We no longer calculate the column skip count here
+    // Instead we use the value set directly by the user through the column skip slider
+    // This _columnSkipCount value is updated via setColumnSkip() method
+    
+    // The speed multiplier directly affects the animation speed now,
+    // without automatically adjusting the column skip count
+    float effectiveMultiplier = _speedMultiplier;
+    
+    // Calculate the total wipe time based on the effective multiplier
+    _totalWipeTime = (uint32_t)(BASE_WIPE_TIME / effectiveMultiplier);
+    
+    // Ensure we don't go below minimum wipe time
+    if (_totalWipeTime < MIN_WIPE_TIME) _totalWipeTime = MIN_WIPE_TIME;
     
     // Calculate column delay based on total wipe time
     _columnDelay = _totalWipeTime / _width;
     
     // Debug info
-    Serial.printf("Game of Life timing: multiplier=%.2f, totalWipe=%lu, columnDelay=%lu\n", 
-                 _speedMultiplier, _totalWipeTime, _columnDelay);
+    Serial.printf("GoL timing: multiplier=%.2f, skip=%d cols, wipe=%lu, delay=%lu\n", 
+                 _speedMultiplier, _columnSkipCount, _totalWipeTime, _columnDelay);
 }
 
 

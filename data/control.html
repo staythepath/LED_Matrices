@@ -228,12 +228,21 @@
             </div>
             
             <!-- Speed slider -->
-            <div class="slider-container">
-              <label for="sliderSpeed">Speed:</label>
+            <div class="slider-container" id="speedContainer">
+              <label for="sliderSpeed" id="speedLabel">Speed:</label>
               <input type="range" id="sliderSpeed" min="0" max="100" step="1" value="10">
               <input type="number" id="numSpeed" min="3" max="1500" step="1" value="10">
               <span class="slider-min">0</span>
               <span class="slider-max">100</span>
+            </div>
+            
+            <!-- Column Skip slider (only for Game of Life) -->
+            <div class="slider-container game-of-life-control" id="columnSkipContainer" data-control-type="column-skip" style="display: none;">
+              <label for="sliderColumnSkip"><strong>Column Skip:</strong></label>
+              <input type="range" id="sliderColumnSkip" min="1" max="5" step="1" value="1">
+              <input type="number" id="numColumnSkip" min="1" max="5" step="1" value="1">
+              <span class="slider-min">1</span>
+              <span class="slider-max">5</span>
             </div>
             
             <!-- Brightness -->

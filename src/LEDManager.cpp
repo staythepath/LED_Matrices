@@ -36,6 +36,8 @@ LEDManager::LEDManager()
     , ledUpdateInterval(38)
     , lastLedUpdate(0)
     , _isInitializing(true)
+    , _speed(30)
+    , _columnSkip(1) // Default to showing every column
 {
     createPalettes();
     _animationNames.push_back("Traffic");     // index=0
@@ -143,15 +145,26 @@ void LEDManager::configureCurrentAnimation() {
     } 
     else if (_currentAnimation->isGameOfLife()) {
         GameOfLifeAnimation* anim = static_cast<GameOfLifeAnimation*>(_currentAnimation);
-        // Use fixed 15ms update interval with speed multiplier approach
-        anim->setUpdateInterval(15);
+        // Use fixed 5ms update interval for maximum speed (reduced from 15ms)
+        anim->setUpdateInterval(5);
         
-        // Calculate multiplier based on speed
-        float speedPercent = (float)_speed / 100.0f; // Convert to 0.0-1.0 range
-        float multiplier = 0.1f + (19.9f * speedPercent * speedPercent); // Exponential curve from 0.1 to 20.0
+        // Map speed percentage (0-100) to multiplier (0.1-30.0)
+        // This now directly affects animation speed without changing column skip behavior
+        float speedPercent = (float)_speed / 100.0f; // 0.0-1.0 range
+        
+        // Using a more aggressive exponential curve for speed multiplier
+        // This gives a wider range of speeds from very slow to extremely fast
+        float multiplier = 0.1f + (29.9f * speedPercent * speedPercent); // 0.1 to 30.0 range
+        
+        // Set both controls separately:
+        // 1. Speed multiplier - controls how fast the animation runs
         anim->setSpeedMultiplier(multiplier);
         
-        Serial.printf("Game of Life animation configured with multiplier: %.2f\n", multiplier);
+        // 2. Column skip - controls how many columns are skipped during animation
+        anim->setColumnSkip(_columnSkip);
+        
+        Serial.printf("Game of Life configured with speed=%.2f, column skip=%d\n", 
+                     multiplier, _columnSkip);
     }
     else if (_currentAnimation->isFirework()) {
         FireworkAnimation* anim = static_cast<FireworkAnimation*>(_currentAnimation);
@@ -727,7 +740,8 @@ int LEDManager::getRotation(String panel) const {
 }
 
 void LEDManager::setUpdateSpeed(unsigned long speed){
-    if(speed>=10 && speed<=1500){
+    if(speed>=4
+         && speed<=1500){
         ledUpdateInterval=speed;
         Serial.printf("LED update speed set to %lu ms\n", speed);
         if(_currentAnimationIndex==0 && _currentAnimation){
@@ -755,28 +769,40 @@ void LEDManager::setUpdateSpeed(unsigned long speed){
             GameOfLifeAnimation* gA = static_cast<GameOfLifeAnimation*>(_currentAnimation);
             
             // Fixed update interval for Game of Life - 15ms
-            // This is similar to RainbowWave's approach of fixed interval + multiplier
             gA->setUpdateInterval(15);
             
-            // Calculate speed multiplier from speed parameter
-            // Map speed [10-1500] to a wide multiplier range [0.1-20.0]
-            // At very high speeds, this will skip columns and update much faster
+            // Calculate multiplier using stepped approach to match our new thresholds
+            // This maps speeds to multipliers with several transition points
+            // 1) At multiplier 1.0-4.0: Show every column, gradually increase speed
+            // 2) At multiplier 4.0-8.0: Skip to every other column (2), starting at ~55% max speed
+            // 3) At multiplier 8.0-12.0: Skip to every third column (3), starting at ~37.5% max speed
+            // 4) At multiplier 12.0-16.0: Skip to every fourth column (4), starting at ~30% max speed
+            // 5) At multiplier 16.0+: Skip to every fifth column (5), starting at ~25% max speed
             float multiplier;
             
-            if (speed >= 500) {
-                // At slow speeds, use a multiplier < 1.0 to slow things down
-                multiplier = 0.1f + (0.9f * (1500.0f - speed) / 1000.0f);
-            } else if (speed <= 15) {
-                // At highest speeds, use maximum multiplier (very fast)
-                multiplier = 20.0f;
+            if (speed >= 800) {
+                // Very slow speeds: use slow multipliers (< 1.0)
+                multiplier = 0.1f + (0.9f * (1500.0f - speed) / 700.0f);
+                multiplier = constrain(multiplier, 0.1f, 1.0f);
+            } else if (speed >= 500) {
+                // Medium-slow speeds: use 1.0 to 4.0 range (every column shown)
+                multiplier = 1.0f + (3.0f * (800.0f - speed) / 300.0f);
+            } else if (speed >= 300) {
+                // Medium speeds: use 4.0 to 8.0 range (every other column)
+                multiplier = 4.0f + (4.0f * (500.0f - speed) / 200.0f);
+            } else if (speed >= 150) {
+                // Medium-fast speeds: use 8.0 to 12.0 range (every third column)
+                multiplier = 8.0f + (4.0f * (300.0f - speed) / 150.0f);
+            } else if (speed >= 50) {
+                // Fast speeds: use 12.0 to 16.0 range (every fourth column)
+                multiplier = 12.0f + (4.0f * (150.0f - speed) / 100.0f);
             } else {
-                // For mid-range speeds, use exponential curve for rapid acceleration
-                // This maps [15-500] to roughly [1.0-15.0] with exponential curve
-                float normalizedSpeed = 1.0f - ((speed - 15.0f) / 485.0f);
-                multiplier = 1.0f + (19.0f * normalizedSpeed * normalizedSpeed * normalizedSpeed);
+                // Very fast speeds: use 16.0 to 20.0 range (every fifth column)
+                multiplier = 16.0f + (4.0f * (50.0f - max(10UL, speed)) / 40.0f);
+                multiplier = constrain(multiplier, 16.0f, 20.0f);
             }
             
-            Serial.printf("Game of Life: speed=%lu ms, using multiplier=%.2f\n", 
+            Serial.printf("Game of Life: speed=%lu ms, using stepped multiplier=%.2f\n", 
                          speed, multiplier);
                          
             gA->setSpeedMultiplier(multiplier);
@@ -785,6 +811,25 @@ void LEDManager::setUpdateSpeed(unsigned long speed){
 }
 unsigned long LEDManager::getUpdateSpeed() const {
     return ledUpdateInterval;
+}
+
+// Game of Life column skip getter/setter
+void LEDManager::setColumnSkip(int skip) {
+    if (skip < 1) skip = 1;
+    if (skip > 5) skip = 5;
+    
+    _columnSkip = skip;
+    LogManager::getInstance().debug("Game of Life column skip set to " + String(_columnSkip));
+    
+    // If Game of Life is the current animation, update its column skip value
+    if (_currentAnimation && _currentAnimationIndex == 4) { // 4 is GameOfLife
+        GameOfLifeAnimation* anim = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        anim->setColumnSkip(_columnSkip);
+    }
+}
+
+int LEDManager::getColumnSkip() const {
+    return _columnSkip;
 }
 
 void LEDManager::setSpeed(int speed) {

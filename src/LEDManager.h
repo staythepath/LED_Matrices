@@ -72,6 +72,10 @@ public:
     // Speed
     void setUpdateSpeed(unsigned long speed);
     unsigned long getUpdateSpeed() const;
+    
+    // Game of Life specific controls
+    void setColumnSkip(int skip);
+    int getColumnSkip() const;
 
 private:
     // Re-init FastLED if panelCount changes
@@ -111,6 +115,7 @@ private:
     unsigned long ledUpdateInterval;
     unsigned long lastLedUpdate;
     int _speed;
+    int _columnSkip; // For Game of Life animation
 };
 
 #endif // LEDMANAGER_H

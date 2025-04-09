@@ -817,6 +817,70 @@ void WebServerManager::begin() {
         }
     });
 
+    // 23) setColumnSkip => sets column skip value for Game of Life animation
+    _server.on("/api/setColumnSkip", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        
+        if (request->hasParam("val")) {
+            int val = request->getParam("val")->value().toInt();
+            // Ensure valid range
+            if (val < 1) val = 1;
+            if (val > 5) val = 5;
+            
+            // Set the column skip value on the LEDManager
+            ledManager.setColumnSkip(val);
+            
+            String msg = "Column skip set to " + String(val);
+            Serial.println(msg);
+            LogManager::getInstance().debug(msg);
+            
+            releaseLEDManager();
+            request->send(200, "text/plain", msg);
+        } else {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing val parameter");
+        }
+    });
+    
+    // 24) getColumnSkip => gets the current column skip value for Game of Life animation
+    _server.on("/api/getColumnSkip", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        
+        // Get the current column skip value
+        int currentColumnSkip = ledManager.getColumnSkip();
+        
+        // Create a JSON response
+        String jsonResponse = "{\"value\":"; 
+        jsonResponse += String(currentColumnSkip);
+        jsonResponse += "}";
+        
+        Serial.printf("Returning column skip value: %d\n", currentColumnSkip);
+        
+        releaseLEDManager();
+        request->send(200, "application/json", jsonResponse);
+    });
+
+    // 25) Reboot endpoint - restarts the ESP32
+    _server.on("/api/reboot", HTTP_GET, [](AsyncWebServerRequest *request) {
+        // Send a response before restarting
+        request->send(200, "text/plain", "Rebooting ESP32...");
+        
+        // Log the reboot request
+        Serial.println("Reboot requested via web interface");
+        LogManager::getInstance().info("System reboot initiated via web interface");
+        
+        // Schedule the restart to happen after response is sent
+        // This ensures the client gets the response before reboot
+        delay(500); // Small delay to ensure response is sent
+        ESP.restart();
+    });
+
     // Start server
     _server.begin();
     Serial.println("Web Server started on port 80.");
