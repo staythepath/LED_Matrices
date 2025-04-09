@@ -209,6 +209,7 @@ void LEDManager::configureCurrentAnimation() {
         anim->setUpdateInterval(ledUpdateInterval);
         anim->setAllPalettes(&ALL_PALETTES);
         anim->setCurrentPalette(currentPalette);
+        anim->setWipeBarBrightness(fadeAmount);
     }
 }
 
@@ -643,6 +644,12 @@ void LEDManager::setFadeAmount(uint8_t a){
     if(_currentAnimationIndex==0 && _currentAnimation){
         TrafficAnimation* t = static_cast<TrafficAnimation*>(_currentAnimation);
         t->setFadeAmount(a);
+    }
+    else if(_currentAnimationIndex==4 && _currentAnimation){
+        // Also update the wipe bar brightness for Game of Life animation
+        GameOfLifeAnimation* g = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        g->setWipeBarBrightness(a);
+        Serial.printf("Game of Life wipe bar brightness set to %d\n", a);
     }
 }
 uint8_t LEDManager::getFadeAmount() const {

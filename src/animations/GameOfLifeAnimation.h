@@ -23,6 +23,7 @@ public:
     void setAllPalettes(const std::vector<std::vector<CRGB>>* allPalettes);
     void setCurrentPalette(int index);
     void setUsePalette(bool usePalette);
+    void setWipeBarBrightness(uint8_t brightness) { _wipeBarBrightness = brightness; }
     
     // Calculate fade duration based on bar position and movement pattern
     uint32_t calculateFadeDuration(int x) const;
@@ -44,7 +45,7 @@ private:
     enum WipeDirection { LEFT_TO_RIGHT, RIGHT_TO_LEFT };
 
     void updateGrid();
-    void drawGrid();
+    void drawGrid(bool ignoreWipePosition = false);
     void drawFullGrid(); // New method to draw the entire grid at once (for high speeds)
     void calculateNextGrid();
     int mapXYtoLED(int x, int y);
@@ -60,6 +61,16 @@ private:
     void applyRotation(int& x, int& y, int panelIndex) const;
     CRGB getNewColor() const;
 
+    // Helper functions for simplified implementation
+    void cleanupPhantomAndStuckCells();
+    void setupWipeAnimation();
+    void updateWipePosition();
+    int countNeighbors(int x, int y) const;
+    bool applyLifeRules(bool isAlive, int neighbors) const;
+    void handleCellBirth(int x, int y, int idx);
+    void handleCellDeath(int x, int y, int idx);
+    void checkForStagnation();
+    
     inline int getCellIndex(int x, int y) const { return y * _width + x; }
     bool getCellState(uint8_t* grid, int x, int y) const;
     void setCellState(uint8_t* grid, int x, int y, bool state);
@@ -96,6 +107,7 @@ private:
     const std::vector<std::vector<CRGB>>* _allPalettes;
     const std::vector<CRGB>* _currentPalette;
     bool _usePalette;
+    uint8_t _wipeBarBrightness;  // Brightness of the wipe bar effect
 };
 
 #endif // GAMEOFLIFEANIMATION_H

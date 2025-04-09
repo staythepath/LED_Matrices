@@ -35,6 +35,7 @@ GameOfLifeAnimation::GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, i
       _allPalettes(nullptr),
       _currentPalette(nullptr),
       _usePalette(true),
+      _wipeBarBrightness(20),
       _currentWipeDirection(LEFT_TO_RIGHT),
       _currentWipeColumn(0),
       _isWiping(false),
@@ -124,240 +125,127 @@ void GameOfLifeAnimation::begin() {
     }
 }
 
+void GameOfLifeAnimation::cleanupPhantomAndStuckCells() {
+    unsigned long currentTime = millis();
+    
+    // Check for cells that have been in transition for too long AND for phantom cells
+    for (int i = 0; i < _gridSize; i++) {
+        // Get coordinates for this cell
+        int x = i % _width;
+        int y = i / _width;
+        
+        // First check if it's a legitimate live cell
+        bool isLiveCell = getCellState(_grid1, x, y);
+        bool isDyingCell = getCellState(_dyingCells, x, y);
+        
+        if (!isLiveCell && !isDyingCell) {
+            // This is not a live or dying cell - it shouldn't have any color or state
+            // This is the most aggressive fix for phantom cells
+            _colorMap[i] = CRGB::Black;
+            _transitionMap[i] = CRGB::Black;
+            _fadeStartTime[i] = 0;
+            _fadeDuration[i] = 0;
+            _highlightIntensity[i] = 0;
+            setCellState(_newBornCells, x, y, false);
+        } else {
+            // For actual live cells, check for stuck transitions
+            uint32_t fadeStartedAt = _fadeStartTime[i];
+            if (fadeStartedAt > 0 && currentTime - fadeStartedAt > 3000) {
+                // This cell has been transitioning for over 3 seconds - force completion
+                _fadeStartTime[i] = 0;
+                _highlightIntensity[i] = 0;
+                
+                // If it's a live cell, check for problematic colors
+                if (isLiveCell) {
+                    // Check for gray/white colors that might be stuck
+                    if ((_colorMap[i].r == _colorMap[i].g && _colorMap[i].g == _colorMap[i].b && _colorMap[i].r > 0) ||
+                        (_colorMap[i].r > 200 && _colorMap[i].g > 200 && _colorMap[i].b > 200)) {
+                        // Replace gray/white with a proper palette color
+                        _colorMap[i] = getNewColor();
+                    }
+                } else if (isDyingCell) {
+                    // Finish the dying process
+                    setCellState(_dyingCells, x, y, false);
+                    _transitionMap[i] = CRGB::Black;
+                    _colorMap[i] = CRGB::Black;
+                }
+            }
+        }
+    }
+}
+
+void GameOfLifeAnimation::setupWipeAnimation() {
+    _needsNewGrid = false;
+    _isWiping = true;
+    
+    // Always alternate wipe direction for visual interest
+    _currentWipeDirection = (_currentWipeDirection == LEFT_TO_RIGHT) ? RIGHT_TO_LEFT : LEFT_TO_RIGHT;
+    _currentWipeColumn = (_currentWipeDirection == LEFT_TO_RIGHT) ? 0 : _width - 1;
+}
+
+void GameOfLifeAnimation::updateWipePosition() {
+    // Move to the next column in the current wipe direction
+    if (_currentWipeDirection == LEFT_TO_RIGHT) {
+        _currentWipeColumn++;
+        
+        // Check if we've completed the wipe
+        if (_currentWipeColumn >= _width) {
+            _isWiping = false;
+            _needsNewGrid = true;
+        }
+    } else { // RIGHT_TO_LEFT
+        _currentWipeColumn--;
+        
+        // Check if we've completed the wipe
+        if (_currentWipeColumn < 0) {
+            _isWiping = false;
+            _needsNewGrid = true;
+        }
+    }
+}
+
 void GameOfLifeAnimation::update() {
     if (!_grid1 || !_grid2 || !_colorMap) return;
     
     unsigned long currentTime = millis();
-    // More aggressive check for phantom cells and stuck transitions
+    
+    // Periodic cleanup (once per second)
     static uint32_t lastCleanupTime = 0;
-    const uint32_t CLEANUP_INTERVAL_MS = 1000; // Check every second (more frequent)
+    const uint32_t CLEANUP_INTERVAL_MS = 1000; // Check every second
     
     if (currentTime - lastCleanupTime > CLEANUP_INTERVAL_MS) {
         lastCleanupTime = currentTime;
-        
-        // Check for cells that have been in transition for too long AND for phantom cells
-        for (int i = 0; i < _gridSize; i++) {
-            // Get coordinates for this cell
-            int x = i % _width;
-            int y = i / _width;
-            
-            // First check if it's a legitimate live cell
-            bool isLiveCell = getCellState(_grid1, x, y);
-            bool isDyingCell = getCellState(_dyingCells, x, y);
-            
-            if (!isLiveCell && !isDyingCell) {
-                // This is not a live or dying cell - it shouldn't have any color or state
-                // This is the most aggressive fix for phantom cells
-                _colorMap[i] = CRGB::Black;
-                _transitionMap[i] = CRGB::Black;
-                _fadeStartTime[i] = 0;
-                _fadeDuration[i] = 0;
-                _highlightIntensity[i] = 0;
-                setCellState(_newBornCells, x, y, false);
-            } else {
-                // For actual live cells, check for stuck transitions
-                uint32_t fadeStartedAt = _fadeStartTime[i];
-                if (fadeStartedAt > 0 && currentTime - fadeStartedAt > 3000) {
-                    // This cell has been transitioning for over 3 seconds - force completion
-                    _fadeStartTime[i] = 0;
-                    _highlightIntensity[i] = 0;
-                    
-                    // If it's a live cell, check for problematic colors
-                    if (isLiveCell) {
-                        // Check for gray/white colors that might be stuck
-                        if ((_colorMap[i].r == _colorMap[i].g && _colorMap[i].g == _colorMap[i].b && _colorMap[i].r > 0) ||
-                            (_colorMap[i].r > 200 && _colorMap[i].g > 200 && _colorMap[i].b > 200)) {
-                            // Replace gray/white with a proper palette color
-                            _colorMap[i] = getNewColor();
-                        }
-                    } else if (isDyingCell) {
-                        // Finish the dying process
-                        setCellState(_dyingCells, x, y, false);
-                        _transitionMap[i] = CRGB::Black;
-                        _colorMap[i] = CRGB::Black;
-                    }
-                }
-            }
-        }
+        cleanupPhantomAndStuckCells();
     }
-    
-    // CRITICAL: The _intervalMs directly controls how quickly we process columns
-    // For speed=0 (slowest): _intervalMs ≈ 2000ms = 2 seconds per column
-    // For speed=100 (fastest): _intervalMs ≈ 1ms = 0.001 seconds per column
     
     // Only proceed if enough time has passed since the last update
     if (currentTime - _lastUpdateTime < _intervalMs) return;
+    _lastUpdateTime = currentTime;
     
-    // Optimization for maximum speed (when _intervalMs is very small)
+    // Two main paths based on speed
     if (_intervalMs <= 5) {
         // Fast path: Skip column-by-column animation at high speeds
-        // Just calculate and draw the entire grid at once
         if (_needsNewGrid) {
             calculateNextGrid();
             _needsNewGrid = false;
-            
-            // Check for stagnation only at the end of a full grid update
-            int currentCellCount = countLiveCells();
-            if (currentCellCount == _lastCellCount) {
-                _stagnationCounter++;
-                if (_stagnationCounter >= 5) {
-                    // Pattern is stagnant, reinitialize
-                    randomize(33);
-                    _stagnationCounter = 0;
-                }
-            } else {
-                _stagnationCounter = 0;
-                _lastCellCount = currentCellCount;
-            }
         } else {
-            // Fade transition for all cells (white to color)
-            static unsigned long lastTransitionTime = 0;
-            unsigned long currentMillis = millis();
-            
-            // Perform transition update every ~33ms (30fps) for smooth transitions
-            // This ensures consistent timing regardless of main animation speed
-            if (currentMillis - lastTransitionTime >= 33) {
-                lastTransitionTime = currentMillis;
-                
-                // For a ~2 second fade (255 steps at 30fps would be 8.5 seconds)
-                // So we need to decrease by ~4 units per frame to achieve a 2-second transition
-                uint8_t fadeAmount = 4;
-                
-                for (int i = 0; i < _gridSize; i++) {
-                    // We no longer need this code since all cells start fading
-                    // immediately when born
-                }
-            }
-            
             // Draw entire grid at once at high speeds
             drawFullGrid();
-            
-            // Reset for next generation immediately
             _needsNewGrid = true;
         }
-        
-        _lastUpdateTime = currentTime;
-        return;
-    }
-    
-    // Normal path for medium to slow speeds
-    if (_needsNewGrid) {
-        // Start of animation cycle - calculate new generation
-        calculateNextGrid();
-        _needsNewGrid = false;
-        _isWiping = true;
-        
-        // Always alternate wipe direction for visual interest
-        _currentWipeDirection = (_currentWipeDirection == LEFT_TO_RIGHT) ? RIGHT_TO_LEFT : LEFT_TO_RIGHT;
-        _currentWipeColumn = (_currentWipeDirection == LEFT_TO_RIGHT) ? 0 : _width - 1;
-        
-        // We'll handle transition updates in the column processing loop
-        // This ensures cells only start fading AFTER the swipe has passed them
-        
-        // Draw the initial state with current column highlighted
-        drawGrid();
-    }
-    else if (_isWiping) {
-        // Process exactly ONE column at a time - this ensures every column gets processed
-        // The speed control comes from how frequently this code block runs (_intervalMs)
-        
-        // Move to the next column in the current wipe direction
-        if (_currentWipeDirection == LEFT_TO_RIGHT) {
-            // Transition management is now handled in the main fade logic at the end of update()
-            
-            _currentWipeColumn++;
-            
-            // Check if we've completed the wipe
-            if (_currentWipeColumn >= _width) {
-                _isWiping = false;
-                _needsNewGrid = true;
-                
-                // Check for stagnation at the end of a full grid update
-                int currentCellCount = countLiveCells();
-                if (currentCellCount == _lastCellCount) {
-                    _stagnationCounter++;
-                    if (_stagnationCounter >= 5) {
-                        // Pattern is stagnant, reinitialize
-                        randomize(33);
-                        _stagnationCounter = 0;
-                    }
-                } else {
-                    _stagnationCounter = 0;
-                    _lastCellCount = currentCellCount;
-                }
-            }
-        } else { // RIGHT_TO_LEFT
-            // Transition management is now handled in the main fade logic at the end of update()
-            
-            _currentWipeColumn--;
-            
-            // Check if we've completed the wipe
-            if (_currentWipeColumn < 0) {
-                _isWiping = false;
-                _needsNewGrid = true;
-                
-                // Check for stagnation at the end of a full grid update
-                int currentCellCount = countLiveCells();
-                if (currentCellCount == _lastCellCount) {
-                    _stagnationCounter++;
-                    if (_stagnationCounter >= 5) {
-                        // Pattern is stagnant, reinitialize
-                        randomize(33);
-                        _stagnationCounter = 0;
-                    }
-                } else {
-                    _stagnationCounter = 0;
-                    _lastCellCount = currentCellCount;
-                }
-            }
+    } else {
+        // Normal path for medium to slow speeds with column-by-column wipe
+        if (_needsNewGrid) {
+            calculateNextGrid();
+            setupWipeAnimation();
+            drawGrid();
         }
-        
-        // Fade management is now handled in the main update loop at the end
-        // This allows proper logic for when cells should start fading after the swipe passes
-        
-        // Draw the grid with current wipe position
-        drawGrid();
-    }
-    else {
-        // Shouldn't normally reach here, but as a fallback:
-        _needsNewGrid = true;
-    }
-
-    // IMPORTANT: Reset the timer for the next column update
-    // This is what controls the speed of the column wipe effect
-    _lastUpdateTime = currentTime;
-    
-    // Fade all highlights slightly every frame, regardless of column updates
-    // This ensures a smooth fade effect even at slow speeds
-    if (_isWiping) {
-        // White-to-color transition management that happens continuously after a swipe passes
-        static unsigned long lastTransitionTime = 0;
-        unsigned long currentMillis = millis();
-        
-        // Perform transition update approximately every 33ms (30fps) for smooth fades
-        if (currentMillis - lastTransitionTime >= 33) {
-            lastTransitionTime = currentMillis;
-            
-            // For a ~2 second fade (255 steps / 60 frames = ~4.25 units per frame)
-            uint8_t fadeAmount = 4;
-            
-            // Process all columns that the swipe bar has already passed
-            for (int x = 0; x < _width; x++) {
-                bool shouldFade = false;
-                if (_currentWipeDirection == LEFT_TO_RIGHT && x < _currentWipeColumn) {
-                    shouldFade = true;
-                } else if (_currentWipeDirection == RIGHT_TO_LEFT && x > _currentWipeColumn) {
-                    shouldFade = true;
-                }
-                
-                if (shouldFade) {
-                    for (int y = 0; y < _height; y++) {
-                        int idx = getCellIndex(x, y);
-                        // We no longer need to handle transitions here
-                        // All cells start fading immediately when born
-                    }
-                }
-            }
+        else if (_isWiping) {
+            updateWipePosition();
+            drawGrid();
+        }
+        else {
+            _needsNewGrid = true;
         }
     }
     
@@ -367,149 +255,101 @@ void GameOfLifeAnimation::update() {
 
 // Helper method to draw the full grid at once (for high speeds)
 void GameOfLifeAnimation::drawFullGrid() {
-    for (int y = 0; y < _height; y++) {
-        for (int x = 0; x < _width; x++) {
-            const int ledIndex = mapXYtoLED(x, y);
-            if (ledIndex >= 0 && ledIndex < _numLeds) {
-                if (getCellState(_grid1, x, y)) {
-                    leds[ledIndex] = _colorMap[getCellIndex(x, y)];
-                    
-                    // Get the cell index for this position
-                    int idx = getCellIndex(x, y);
-                    
-                    // Check if this cell is in transition (newly born)
-                    uint8_t transitionProgress = _highlightIntensity[idx];
-                    
-                    if (transitionProgress > 0) {
-                        // This cell is in transition from white to its target color
-                        
-                        // Calculate how far along the transition is (0-255)
-                        // 255 = full white, 0 = full target color
-                        uint8_t whiteAmount = transitionProgress;
-                        uint8_t colorAmount = 255 - whiteAmount;
-                        
-                        // Get the target color with brightness applied
-                        CRGB targetColor = _colorMap[idx];
-                        targetColor.nscale8(_brightness);
-                        
-                        // Get the current transition color (starts as white)
-                        CRGB transitionColor = _transitionMap[idx];
-                        
-                        // Blend between white and target color based on transition progress
-                        leds[ledIndex] = blend(targetColor, transitionColor, whiteAmount);
-                    } else if (getCellState(_newBornCells, x, y)) {
-                        // If we just discovered this new cell in high-speed mode, set it to bright white
-                        // In high-speed mode, we'll start the transition on the next update cycle
-                        _highlightIntensity[idx] = 255; // Full white intensity
-                        _transitionMap[idx] = CRGB(255, 255, 255); // Bright white initial color
-                        leds[ledIndex] = _transitionMap[idx]; // Display as white
-                    } else {
-                        // Normal cell color for existing cells
-                        CRGB cellColor = _colorMap[idx];
-                        cellColor.nscale8(_brightness);
-                        leds[ledIndex] = cellColor;
-                    }
-                } else {
-                    leds[ledIndex] = CRGB::Black;
-                }
+    // Simply reuse the drawGrid function with ignoreWipePosition=true
+    drawGrid(true);
+}
+
+int GameOfLifeAnimation::countNeighbors(int x, int y) const {
+    int neighbors = 0;
+    
+    for (int dy = -1; dy <= 1; dy++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            if (dx == 0 && dy == 0) continue;
+            
+            const int nx = (x + dx + _width) % _width;
+            const int ny = (y + dy + _height) % _height;
+            
+            if (getCellState(_grid1, nx, ny)) {
+                neighbors++;
             }
         }
+    }
+    
+    return neighbors;
+}
+
+bool GameOfLifeAnimation::applyLifeRules(bool isAlive, int neighbors) const {
+    // Conway's Game of Life rules:
+    // 1. Any live cell with 2 or 3 live neighbors survives
+    // 2. Any dead cell with exactly 3 live neighbors becomes alive
+    // 3. All other cells die or stay dead
+    if (isAlive) {
+        return (neighbors == 2 || neighbors == 3);
+    } else {
+        return (neighbors == 3);
     }
 }
 
-void GameOfLifeAnimation::calculateNextGrid() {
-    // Clear the newBornCells array before calculating the next generation
-    memset(_newBornCells, 0, _gridSizeBytes);
+void GameOfLifeAnimation::handleCellDeath(int x, int y, int idx) {
+    // Mark this cell as dying
+    setCellState(_dyingCells, x, y, true);
     
-    // Existing updateGrid logic moved here
-    for (int y = 0; y < _height; y++) {
-        for (int x = 0; x < _width; x++) {
-            int neighbors = 0;
-            
-            for (int dy = -1; dy <= 1; dy++) {
-                for (int dx = -1; dx <= 1; dx++) {
-                    if (dx == 0 && dy == 0) continue;
-                    
-                    const int nx = (x + dx + _width) % _width;
-                    const int ny = (y + dy + _height) % _height;
-                    
-                    if (getCellState(_grid1, nx, ny)) {
-                        neighbors++;
-                    }
-                }
-            }
-
-            const bool isAlive = getCellState(_grid1, x, y);
-            bool willLive = false;
-            const int idx = getCellIndex(x, y);
-
-            if (isAlive) {
-                willLive = (neighbors == 2 || neighbors == 3);
-                if (!willLive) {
-                    // This cell is dying
-                    setCellState(_dyingCells, x, y, true);
-                    
-                    // Store its current color in the transition map for fade-out effect
-                    // Store current color for the fade-out
-                    // If it's already black or doesn't have a valid color, don't bother with transition
-                    if (_colorMap[idx].r == 0 && _colorMap[idx].g == 0 && _colorMap[idx].b == 0) {
-                        // Skip the transition for black cells
-                        _transitionMap[idx] = CRGB::Black;
-                        _fadeDuration[idx] = 1; // Very short duration to complete quickly
-                    } else {
-                        // Use the current color as starting point for fade
-                        _transitionMap[idx] = _colorMap[idx];
-                    }
-                    
-                    // Reset any lingering fade state from birth animation
-                    _highlightIntensity[idx] = 0;
-                    
-                    // Start the fade-out immediately
-                    _fadeStartTime[idx] = millis();
-                    
-                    // Give each cell a slightly different fade duration (1-2 seconds)
-                    _fadeDuration[idx] = 1000 + random(1000);
-                    
-                    // Set final color to black
-                    _colorMap[idx] = CRGB::Black;
-                }
-            } else {
-                willLive = (neighbors == 3);
-                if (willLive) {
-                    // This is a newly born cell
-                    CRGB targetColor = getNewColor(); // Get the color this cell will eventually have
-                    _colorMap[idx] = targetColor;     // Store the target color
-                    // Use a pure saturated white for new cells - any other color can cause stuck cells
-                    _transitionMap[idx] = CRGB(255, 255, 255);
-                    
-                    // Reset any lingering death fade state
-                    setCellState(_dyingCells, x, y, false);
-                    
-                    // Mark it in the newBornCells array
-                    setCellState(_newBornCells, x, y, true);
-                    
-                    // Set initial transition intensity to maximum
-                    // This will control how much of the white vs. target color is shown
-                    _highlightIntensity[idx] = 255; // Full transition effect (100% white initially)
-                    
-                    // Start the fade immediately - don't wait for the bar to pass
-                    // Set the timestamp for when this cell started fading
-                    _fadeStartTime[idx] = millis();
-                    
-                    // Give each cell a slightly different fade duration (1.5-2.5 seconds)
-                    // This creates a more natural, independent look
-                    _fadeDuration[idx] = 1500 + random(1000);
-                }
-            }
-
-            setCellState(_grid2, x, y, willLive);
-        }
+    // If it's already black, don't bother with transition
+    if (_colorMap[idx].r == 0 && _colorMap[idx].g == 0 && _colorMap[idx].b == 0) {
+        _transitionMap[idx] = CRGB::Black;
+        _fadeDuration[idx] = 1; // Very short duration
+    } else {
+        // Use current color as starting point for fade
+        _transitionMap[idx] = _colorMap[idx];
     }
-
-    std::swap(_grid1, _grid2);
     
-    // Check for stagnation/extinction
+    // Reset lingering fade state from birth animation
+    _highlightIntensity[idx] = 0;
+    
+    // Start the fade-out immediately
+    _fadeStartTime[idx] = millis();
+    
+    // Give each cell a slightly different fade duration (1-2 seconds)
+    _fadeDuration[idx] = 1000 + random(1000);
+    
+    // Set final color to black
+    _colorMap[idx] = CRGB::Black;
+}
+
+void GameOfLifeAnimation::handleCellBirth(int x, int y, int idx) {
+    // Get the color this cell will eventually have
+    CRGB targetColor = getNewColor();
+    _colorMap[idx] = targetColor;
+    
+    // Use pure white for new cells
+    _transitionMap[idx] = CRGB(255, 255, 255);
+    
+    // Reset any lingering death fade state
+    setCellState(_dyingCells, x, y, false);
+    
+    // Mark it in the newBornCells array
+    setCellState(_newBornCells, x, y, true);
+    
+    // Set initial transition intensity to maximum
+    _highlightIntensity[idx] = 255; // Full white initially
+    
+    // Start the fade immediately
+    _fadeStartTime[idx] = millis();
+    
+    // Give each cell a slightly different fade duration (1.5-2.5 seconds)
+    _fadeDuration[idx] = 1500 + random(1000);
+}
+
+void GameOfLifeAnimation::checkForStagnation() {
     const int cellCount = countLiveCells();
+    
+    // If no cells are alive, reset the grid
+    if (cellCount == 0) {
+        randomize(_initialDensity);
+        return;
+    }
+    
+    // Check if the pattern is stagnant (same cell count for multiple generations)
     if (cellCount == _lastCellCount) {
         if (++_stagnationCounter >= _maxStagnation) {
             randomize(_initialDensity);
@@ -519,10 +359,39 @@ void GameOfLifeAnimation::calculateNextGrid() {
         _stagnationCounter = 0;
         _lastCellCount = cellCount;
     }
+}
 
-    if (cellCount == 0) {
-        randomize(_initialDensity);
+void GameOfLifeAnimation::calculateNextGrid() {
+    // Clear the arrays for tracking cell state changes
+    memset(_newBornCells, 0, _gridSizeBytes);
+    memset(_dyingCells, 0, _gridSizeBytes);
+    
+    // Apply Game of Life rules to each cell
+    for (int y = 0; y < _height; y++) {
+        for (int x = 0; x < _width; x++) {
+            // Count neighbors and apply rules
+            int neighbors = countNeighbors(x, y);
+            bool isAlive = getCellState(_grid1, x, y);
+            bool willLive = applyLifeRules(isAlive, neighbors);
+            int idx = getCellIndex(x, y);
+            
+            // Handle state transitions
+            if (isAlive && !willLive) {
+                handleCellDeath(x, y, idx);
+            } else if (!isAlive && willLive) {
+                handleCellBirth(x, y, idx);
+            }
+            
+            // Set the cell's state in the next generation
+            setCellState(_grid2, x, y, willLive);
+        }
     }
+    
+    // Swap grid pointers for next generation
+    std::swap(_grid1, _grid2);
+    
+    // Check for stagnation or extinction
+    checkForStagnation();
 }
 
 void GameOfLifeAnimation::randomize(uint8_t density) {
@@ -554,7 +423,7 @@ void GameOfLifeAnimation::randomize(uint8_t density) {
     }
 }
 
-void GameOfLifeAnimation::drawGrid() {
+void GameOfLifeAnimation::drawGrid(bool ignoreWipePosition) {
     if (!_grid1 || !_colorMap) return;
     
     // First draw all cells in their final state (the current game state)
@@ -562,9 +431,10 @@ void GameOfLifeAnimation::drawGrid() {
     for (int y = 0; y < _height; y++) {
         for (int x = 0; x < _width; x++) {
             // For the wipe effect, only show the cells up to the current wipe position
-            // Skip anything beyond the current column in the wipe direction
-            if ((_currentWipeDirection == LEFT_TO_RIGHT && x > _currentWipeColumn) ||
-                (_currentWipeDirection == RIGHT_TO_LEFT && x < _currentWipeColumn)) {
+            // Skip anything beyond the current column in the wipe direction unless ignoreWipePosition is true
+            if (!ignoreWipePosition && 
+                ((_currentWipeDirection == LEFT_TO_RIGHT && x > _currentWipeColumn) ||
+                 (_currentWipeDirection == RIGHT_TO_LEFT && x < _currentWipeColumn))) {
                 continue;
             }
             
@@ -692,41 +562,46 @@ void GameOfLifeAnimation::drawGrid() {
         }
     }
     
-    // Now highlight just the current wipe column with a subtle overlay
-    // This is ONLY a visual effect and doesn't modify any persistent cell colors
-    for (int y = 0; y < _height; y++) {
-        int x = _currentWipeColumn;
-        const int ledIndex = mapXYtoLED(x, y);
-        
-        if (ledIndex >= 0 && ledIndex < _numLeds) {
-            // NEVER color cells in the wipe column to avoid phantom cells
-            int idx = getCellIndex(x, y);
+    // Only highlight the wipe column if we're not ignoring wipe position
+    if (!ignoreWipePosition) {
+        // Now highlight just the current wipe column with a subtle overlay
+        // This is ONLY a visual effect and doesn't modify any persistent cell colors
+        for (int y = 0; y < _height; y++) {
+            int x = _currentWipeColumn;
+            const int ledIndex = mapXYtoLED(x, y);
             
-            // Check if there's a live cell at this position
-            bool isLiveCell = getCellState(_grid1, x, y);
-            bool isDyingCell = getCellState(_dyingCells, x, y);
-            
-            if (isLiveCell) {
-                // For live cells, PRESERVE their original color but add a subtle overlay
-                // This is a temporary visual-only effect that won't persist
-                CRGB temp = leds[ledIndex];
+            if (ledIndex >= 0 && ledIndex < _numLeds) {
+                // NEVER color cells in the wipe column to avoid phantom cells
+                int idx = getCellIndex(x, y);
                 
-                // Add JUST 20 to blue to create a subtle highlight that won't become a color
-                temp.b = qadd8(temp.b, 20);
-                leds[ledIndex] = temp;
-            } else if (isDyingCell) {
-                // For dying cells, don't add ANY visual effect - just let them fade naturally
-                // Don't change the color or add any highlights
-            } else {
-                // COMPLETELY EMPTY cell - make sure it has no color data anywhere
-                _colorMap[idx] = CRGB::Black;
-                _transitionMap[idx] = CRGB::Black;
-                _highlightIntensity[idx] = 0;
-                _fadeStartTime[idx] = 0;
+                // Check if there's a live cell at this position
+                bool isLiveCell = getCellState(_grid1, x, y);
+                bool isDyingCell = getCellState(_dyingCells, x, y);
                 
-                // Set empty cell color for visual effect - use a pure blue that's very dim
-                // This ensures it won't contribute to any "stuck" cells
-                leds[ledIndex] = CRGB(0, 0, 5); // Extremely dim pure blue
+                if (isLiveCell) {
+                    // For live cells, PRESERVE their original color but add a subtle overlay
+                    // This is a temporary visual-only effect that won't persist
+                    CRGB temp = leds[ledIndex];
+                    
+                    // Add the wipe bar brightness value to blue to create a highlight
+                    // This is controlled by the Fade Amount slider in the web UI
+                    temp.b = qadd8(temp.b, _wipeBarBrightness);
+                    leds[ledIndex] = temp;
+                } else if (isDyingCell) {
+                    // For dying cells, don't add ANY visual effect - just let them fade naturally
+                    // Don't change the color or add any highlights
+                } else {
+                    // COMPLETELY EMPTY cell - make sure it has no color data anywhere
+                    _colorMap[idx] = CRGB::Black;
+                    _transitionMap[idx] = CRGB::Black;
+                    _highlightIntensity[idx] = 0;
+                    _fadeStartTime[idx] = 0;
+                    
+                    // Set empty cell color for visual effect based on wipe bar brightness setting
+                    // This ensures it won't contribute to any "stuck" cells
+                    uint8_t emptyBrightness = constrain(_wipeBarBrightness / 4, 0, 20); // Scale down but cap at 20
+                    leds[ledIndex] = CRGB(0, 0, emptyBrightness); // Pure blue based on wipe bar brightness
+                }
             }
         }
     }
