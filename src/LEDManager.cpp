@@ -143,8 +143,15 @@ void LEDManager::configureCurrentAnimation() {
     } 
     else if (_currentAnimation->isGameOfLife()) {
         GameOfLifeAnimation* anim = static_cast<GameOfLifeAnimation*>(_currentAnimation);
-        anim->setUpdateInterval(ledUpdateInterval);
-        Serial.printf("Game of Life animation speed set to interval: %lu ms\n", ledUpdateInterval);
+        // Use fixed 15ms update interval with speed multiplier approach
+        anim->setUpdateInterval(15);
+        
+        // Calculate multiplier based on speed
+        float speedPercent = (float)_speed / 100.0f; // Convert to 0.0-1.0 range
+        float multiplier = 0.1f + (19.9f * speedPercent * speedPercent); // Exponential curve from 0.1 to 20.0
+        anim->setSpeedMultiplier(multiplier);
+        
+        Serial.printf("Game of Life animation configured with multiplier: %.2f\n", multiplier);
     }
     else if (_currentAnimation->isFirework()) {
         FireworkAnimation* anim = static_cast<FireworkAnimation*>(_currentAnimation);
@@ -746,7 +753,33 @@ void LEDManager::setUpdateSpeed(unsigned long speed){
         }
         else if(_currentAnimationIndex == 4 && _currentAnimation){
             GameOfLifeAnimation* gA = static_cast<GameOfLifeAnimation*>(_currentAnimation);
-            gA->setUpdateInterval(speed);
+            
+            // Fixed update interval for Game of Life - 15ms
+            // This is similar to RainbowWave's approach of fixed interval + multiplier
+            gA->setUpdateInterval(15);
+            
+            // Calculate speed multiplier from speed parameter
+            // Map speed [10-1500] to a wide multiplier range [0.1-20.0]
+            // At very high speeds, this will skip columns and update much faster
+            float multiplier;
+            
+            if (speed >= 500) {
+                // At slow speeds, use a multiplier < 1.0 to slow things down
+                multiplier = 0.1f + (0.9f * (1500.0f - speed) / 1000.0f);
+            } else if (speed <= 15) {
+                // At highest speeds, use maximum multiplier (very fast)
+                multiplier = 20.0f;
+            } else {
+                // For mid-range speeds, use exponential curve for rapid acceleration
+                // This maps [15-500] to roughly [1.0-15.0] with exponential curve
+                float normalizedSpeed = 1.0f - ((speed - 15.0f) / 485.0f);
+                multiplier = 1.0f + (19.0f * normalizedSpeed * normalizedSpeed * normalizedSpeed);
+            }
+            
+            Serial.printf("Game of Life: speed=%lu ms, using multiplier=%.2f\n", 
+                         speed, multiplier);
+                         
+            gA->setSpeedMultiplier(multiplier);
         }
     }
 }

@@ -22,8 +22,9 @@ GameOfLifeAnimation::GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, i
       _transitionMap(nullptr),
       _width(BASE_PANEL_SIZE * panelCount),
       _height(BASE_PANEL_SIZE),
-      _intervalMs(150),  // Default interval in ms
+      _intervalMs(15),  // Fixed base update interval (15ms)
       _lastUpdateTime(0),
+      _speedMultiplier(1.0f),  // Default speed multiplier
       _stagnationCounter(0),
       _lastCellCount(0),
       _panelOrder(1),
@@ -184,9 +185,16 @@ void GameOfLifeAnimation::setupWipeAnimation() {
 }
 
 void GameOfLifeAnimation::updateWipePosition() {
-    // Move to the next column in the current wipe direction
+    // Calculate how many columns to skip based on the speed multiplier
+    // Higher multiplier = more columns skipped per update
+    // At multiplier=1, we move by 1 column
+    // At higher multipliers, we skip columns proportionally
+    
+    int columnsToSkip = max(1, (int)(_speedMultiplier + 0.5f));
+    
+    // Move multiple columns in the current wipe direction
     if (_currentWipeDirection == LEFT_TO_RIGHT) {
-        _currentWipeColumn++;
+        _currentWipeColumn += columnsToSkip;
         
         // Check if we've completed the wipe
         if (_currentWipeColumn >= _width) {
@@ -194,13 +202,19 @@ void GameOfLifeAnimation::updateWipePosition() {
             _needsNewGrid = true;
         }
     } else { // RIGHT_TO_LEFT
-        _currentWipeColumn--;
+        _currentWipeColumn -= columnsToSkip;
         
         // Check if we've completed the wipe
         if (_currentWipeColumn < 0) {
             _isWiping = false;
             _needsNewGrid = true;
         }
+    }
+    
+    // Debug info at higher speeds
+    if (columnsToSkip > 1) {
+        Serial.printf("GoL: Skipped %d columns (multiplier=%.1f)\n", 
+                      columnsToSkip, _speedMultiplier);
     }
 }
 
@@ -219,34 +233,23 @@ void GameOfLifeAnimation::update() {
     }
     
     // Only proceed if enough time has passed since the last update
+    // The base update speed is fixed (15ms) and speed is controlled by the multiplier
     if (currentTime - _lastUpdateTime < _intervalMs) return;
     _lastUpdateTime = currentTime;
     
-    // Two main paths based on speed
-    if (_intervalMs <= 5) {
-        // Fast path: Skip column-by-column animation at high speeds
-        if (_needsNewGrid) {
-            calculateNextGrid();
-            _needsNewGrid = false;
-        } else {
-            // Draw entire grid at once at high speeds
-            drawFullGrid();
-            _needsNewGrid = true;
-        }
-    } else {
-        // Normal path for medium to slow speeds with column-by-column wipe
-        if (_needsNewGrid) {
-            calculateNextGrid();
-            setupWipeAnimation();
-            drawGrid();
-        }
-        else if (_isWiping) {
-            updateWipePosition();
-            drawGrid();
-        }
-        else {
-            _needsNewGrid = true;
-        }
+    // Single unified path for all speeds
+    // Speed is controlled by column skipping in updateWipePosition()
+    if (_needsNewGrid) {
+        calculateNextGrid();
+        setupWipeAnimation();
+        drawGrid();
+    }
+    else if (_isWiping) {
+        updateWipePosition();
+        drawGrid();
+    }
+    else {
+        _needsNewGrid = true;
     }
     
     // Show the updated LEDs
@@ -698,29 +701,44 @@ CRGB GameOfLifeAnimation::getNewColor() const {
 }
 
 void GameOfLifeAnimation::setUpdateInterval(unsigned long intervalMs) {
-    // Simply store the update interval - keep this direct and consistent
+    // Store the base update interval
     _intervalMs = intervalMs;
     
-    // For consistent wipe effect timing that doesn't affect the base speed,
-    // we'll use a fixed multiplier that's appropriate for the speed range
-    if (intervalMs < 25) {
-        // At fast speeds, don't bother with wipe effects
-        // The wipe time doesn't matter since we bypass it in update() anyway
-        _totalWipeTime = 50; // Just a placeholder value
-    } else {
-        // For slower speeds, make wipe time proportional but not excessive
-        _totalWipeTime = intervalMs * 2;
-    }
-    
-    // Precompute the column delay for wipe effect
-    _columnDelay = _totalWipeTime / _width;
-    
-    // Debug info
-    Serial.printf("Game of Life speed: intervalMs=%lu, totalWipe=%lu\n", 
-                 _intervalMs, _totalWipeTime);
+    // Update wipe timing based on the current speed multiplier
+    updateWipeTimings();
     
     // Make sure we respond immediately to speed changes
     _lastUpdateTime = millis() - _intervalMs;
+}
+
+void GameOfLifeAnimation::setSpeedMultiplier(float multiplier) {
+    // Constrain the multiplier to a reasonable range (0.1 to 20.0)
+    // This allows for a much wider range of speeds
+    multiplier = constrain(multiplier, 0.1f, 20.0f);
+    _speedMultiplier = multiplier;
+    
+    // Update wipe timing based on the new speed multiplier
+    updateWipeTimings();
+    
+    Serial.printf("Game of Life: Speed multiplier set to %.2f\n", _speedMultiplier);
+}
+
+// Helper method to update wipe timings based on speed multiplier
+void GameOfLifeAnimation::updateWipeTimings() {
+    // Calculate the total wipe time based on the speed multiplier
+    // Faster speeds (higher multiplier) = shorter wipe time
+    // Base wipe time is 500ms at multiplier=1.0
+    _totalWipeTime = (uint32_t)(500.0f / _speedMultiplier);
+    
+    // Set a minimum wipe time limit to prevent instant wipes
+    if (_totalWipeTime < 5) _totalWipeTime = 5;
+    
+    // Calculate column delay based on total wipe time
+    _columnDelay = _totalWipeTime / _width;
+    
+    // Debug info
+    Serial.printf("Game of Life timing: multiplier=%.2f, totalWipe=%lu, columnDelay=%lu\n", 
+                 _speedMultiplier, _totalWipeTime, _columnDelay);
 }
 
 

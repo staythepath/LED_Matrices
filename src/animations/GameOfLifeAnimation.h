@@ -15,8 +15,9 @@ public:
     virtual void begin() override;
     virtual void update() override;
 
-    // Speed control
+    // Speed control using multiplier approach
     void setUpdateInterval(unsigned long intervalMs);
+    void setSpeedMultiplier(float multiplier);
 
     void randomize(uint8_t density = 33);
     
@@ -70,6 +71,7 @@ private:
     void handleCellBirth(int x, int y, int idx);
     void handleCellDeath(int x, int y, int idx);
     void checkForStagnation();
+    void updateWipeTimings();
     
     inline int getCellIndex(int x, int y) const { return y * _width + x; }
     bool getCellState(uint8_t* grid, int x, int y) const;
@@ -91,6 +93,7 @@ private:
     int _gridSize;
     uint32_t _intervalMs;
     uint32_t _lastUpdateTime;
+    float _speedMultiplier;  // Controls how fast the wipe animation moves
 
     // Game state
     int _stagnationCounter;
