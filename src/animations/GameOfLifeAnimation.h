@@ -72,6 +72,7 @@ private:
     void handleCellBirth(int x, int y, int idx);
     void handleCellDeath(int x, int y, int idx);
     void checkForStagnation();
+    uint32_t calculateGridHash() const;
     void updateWipeTimings();
     
     inline int getCellIndex(int x, int y) const { return y * _width + x; }
@@ -100,7 +101,12 @@ private:
     // Game state
     int _stagnationCounter;
     int _lastCellCount;
-    static constexpr int _maxStagnation = 100;
+    int _wipeCycleCount;
+    int _samePatternCount;
+    uint32_t _lastGridHash;
+    static constexpr int _maxStagnation = 10;     // Much more aggressive (was 100)
+    static constexpr int _maxWipeCycles = 3;      // Reset after 3 wipe cycles if no changes
+    static constexpr int _maxPatternRepeats = 5;  // Reset after 5 identical grid states
     static constexpr uint8_t _initialDensity = 33;
 
     // Display configuration

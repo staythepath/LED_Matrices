@@ -6,6 +6,7 @@
 #include <FastLED.h>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm> // For std::min
 
 extern CRGB leds[];
 
@@ -27,6 +28,9 @@ GameOfLifeAnimation::GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, i
       _speedMultiplier(1.0f),  // Default speed multiplier
       _stagnationCounter(0),
       _lastCellCount(0),
+      _wipeCycleCount(0),
+      _samePatternCount(0),
+      _lastGridHash(0),
       _panelOrder(1),
       _totalWipeTime(100),
       _columnDelay(0),
@@ -40,7 +44,8 @@ GameOfLifeAnimation::GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, i
       _currentWipeDirection(LEFT_TO_RIGHT),
       _currentWipeColumn(0),
       _isWiping(false),
-      _needsNewGrid(true) {
+      _needsNewGrid(true),
+      _columnSkipCount(1) {
     
     _gridSize = _width * _height;
     _gridSizeBytes = (_gridSize + 7) / 8;
@@ -185,11 +190,39 @@ void GameOfLifeAnimation::setupWipeAnimation() {
     _currentWipeColumn = (_currentWipeDirection == LEFT_TO_RIGHT) ? 0 : _width - 1;
 }
 
-void GameOfLifeAnimation::updateWipePosition() {
-    // Use the _columnSkipCount value calculated in updateWipeTimings()
-    // This ensures our column skipping is in sync with our speed calculations
+void GameOfLifeAnimation::updateWipeTimings() {
+    // Simple direct calculation - faster multiplier = shorter wipe time
+    _totalWipeTime = (uint32_t)(750.0f / _speedMultiplier);
     
-    // Move columns based on the skip count and direction
+    // Ensure reasonable minimum timing
+    _totalWipeTime = (_totalWipeTime < 5) ? 5 : _totalWipeTime; // Minimum 5ms
+    
+    // Calculate column delay (for fade calculations)
+    _columnDelay = _totalWipeTime / _width;
+    
+    // Debug info
+    Serial.printf("GoL: multiplier=%.2f, skip=%d, wipe=%lu ms\n", 
+                 _speedMultiplier, _columnSkipCount, _totalWipeTime);
+}
+
+void GameOfLifeAnimation::updateWipePosition() {
+    // Ensure the columnSkipCount is calculated based on the right formula
+    // By default, _columnSkipCount is 1-4, but this formula ensures it's always reasonable
+    // and properly related to the column wipe direction
+    _columnSkipCount = (_columnSkipCount < 1) ? 1 : _columnSkipCount;
+    
+    static uint8_t cycleCounter = 0;
+    
+    // Track which cycle we're in to help diagnose the issue
+    // We're looking for a pattern where every 3rd wipe has issues
+    if (_currentWipeColumn <= 1 || _currentWipeColumn >= _width-1) {
+        cycleCounter = (cycleCounter + 1) % 10;
+        // Starting a new wipe - log which cycle we're in
+        Serial.printf("GoL: Starting wipe cycle #%d, direction=%s\n", 
+                     cycleCounter,
+                     _currentWipeDirection == LEFT_TO_RIGHT ? "RIGHT" : "LEFT");
+    }
+    
     if (_currentWipeDirection == LEFT_TO_RIGHT) {
         _currentWipeColumn += _columnSkipCount;
         
@@ -208,12 +241,26 @@ void GameOfLifeAnimation::updateWipePosition() {
         }
     }
     
-    // Log column skipping only when we're skipping multiple columns
-    if (_columnSkipCount > 1 && (_lastUpdateTime % 500) == 0) { // Log less frequently
-        Serial.printf("GoL: Using %d column skip at multiplier=%.1f\n", 
-                      _columnSkipCount, _speedMultiplier);
+    // Count active dying cells to monitor the animation
+    int dyingCellCount = 0;
+    for (int i = 0; i < _gridSizeBytes; i++) {
+        uint8_t mask = 1;
+        for (int bit = 0; bit < 8; bit++) {
+            if (i*8+bit < _gridSize && (_dyingCells[i] & mask) != 0) {
+                dyingCellCount++;
+            }
+            mask <<= 1;
+        }
+    }
+    
+    // Only log occasionally to avoid excessive output
+    if ((_lastUpdateTime % 250) == 0) {
+        Serial.printf("GoL: Wipe cycle=%d, dying cells=%d, column=%d\n", 
+                     cycleCounter, dyingCellCount, _currentWipeColumn);
     }
 }
+
+// This method has been replaced with calculateNextGrid() for efficiency
 
 void GameOfLifeAnimation::update() {
     if (!_grid1 || !_grid2 || !_colorMap) return;
@@ -230,14 +277,14 @@ void GameOfLifeAnimation::update() {
     }
     
     // Only proceed if enough time has passed since the last update
-    // The base update speed is fixed (15ms) and speed is controlled by the multiplier
     if (currentTime - _lastUpdateTime < _intervalMs) return;
     _lastUpdateTime = currentTime;
     
     // Single unified path for all speeds
-    // Speed is controlled by column skipping in updateWipePosition()
     if (_needsNewGrid) {
+        // Calculate the next generation
         calculateNextGrid();
+        
         setupWipeAnimation();
         drawGrid();
     }
@@ -299,18 +346,20 @@ void GameOfLifeAnimation::handleCellDeath(int x, int y, int idx) {
         _transitionMap[idx] = CRGB::Black;
         _fadeDuration[idx] = 1; // Very short duration
     } else {
-        // Use current color as starting point for fade
+        // Store the cell's current color as the base for blinking and fading
         _transitionMap[idx] = _colorMap[idx];
+        
+        // Store death animation parameters in the highlightIntensity field
+        // We'll use this to track the animation phase (blink count and brightening)
+        // 1-5 = blink count, 6 = brighten, 7+ = fading away
+        _highlightIntensity[idx] = 1; // Start at phase 1 (first blink)
     }
     
-    // Reset lingering fade state from birth animation
-    _highlightIntensity[idx] = 0;
-    
-    // Start the fade-out immediately
+    // Start the death animation immediately
     _fadeStartTime[idx] = millis();
     
-    // Give each cell a slightly different fade duration (1-2 seconds)
-    _fadeDuration[idx] = 1000 + random(1000);
+    // Set a fixed 2 second duration for the death animation as requested
+    _fadeDuration[idx] = 2000 + random(200); // 2.0-2.2 seconds
     
     // Set final color to black
     _colorMap[idx] = CRGB::Black;
@@ -321,8 +370,10 @@ void GameOfLifeAnimation::handleCellBirth(int x, int y, int idx) {
     CRGB targetColor = getNewColor();
     _colorMap[idx] = targetColor;
     
-    // Use pure white for new cells
-    _transitionMap[idx] = CRGB(255, 255, 255);
+    // Use pure white for new cells with brightness controlled by _wipeBarBrightness
+    // This controls the intensity of the initial white flash
+    uint8_t initialWhiteBrightness = map(_wipeBarBrightness, 0, 100, 150, 255);
+    _transitionMap[idx] = CRGB(initialWhiteBrightness, initialWhiteBrightness, initialWhiteBrightness);
     
     // Reset any lingering death fade state
     setCellState(_dyingCells, x, y, false);
@@ -330,34 +381,74 @@ void GameOfLifeAnimation::handleCellBirth(int x, int y, int idx) {
     // Mark it in the newBornCells array
     setCellState(_newBornCells, x, y, true);
     
-    // Set initial transition intensity to maximum
-    _highlightIntensity[idx] = 255; // Full white initially
+    // Set initial transition intensity to maximum based on configured brightness
+    _highlightIntensity[idx] = initialWhiteBrightness;
     
     // Start the fade immediately
     _fadeStartTime[idx] = millis();
     
-    // Give each cell a slightly different fade duration (1.5-2.5 seconds)
-    _fadeDuration[idx] = 1500 + random(1000);
+    // Use a slightly longer fade duration for a smoother transition
+    _fadeDuration[idx] = 1600; // 1.6 seconds for a smoother transition
+    
+    // Debug output for new cell birth
+    Serial.printf("New cell born at [%d,%d] with brightness %d\n", x, y, initialWhiteBrightness);
 }
 
 void GameOfLifeAnimation::checkForStagnation() {
     const int cellCount = countLiveCells();
     
-    // If no cells are alive, reset the grid
+    // If no cells are alive, immediately reset the grid
     if (cellCount == 0) {
+        Serial.println("GOL: No cells alive, resetting grid");
         randomize(_initialDensity);
+        _stagnationCounter = 0;
+        _wipeCycleCount = 0;
+        _samePatternCount = 0;
+        _lastGridHash = 0;
         return;
     }
     
-    // Check if the pattern is stagnant (same cell count for multiple generations)
+    // Check if the pattern is changing or not
     if (cellCount == _lastCellCount) {
+        // Cell count hasn't changed - could be stuck or oscillating
+        // Calculate hash to see if the exact pattern has changed
+        uint32_t currentHash = calculateGridHash();
+        
+        if (currentHash == _lastGridHash) {
+            // Exact same pattern detected
+            _samePatternCount++;
+            
+            // If we see the same pattern repeatedly, reset
+            if (_samePatternCount >= _maxPatternRepeats) {
+                Serial.println("GOL: Same pattern detected multiple times, resetting grid");
+                randomize(_initialDensity);
+                _stagnationCounter = 0;
+                _wipeCycleCount = 0;
+                _samePatternCount = 0;
+                _lastGridHash = 0;
+                return;
+            }
+        } else {
+            // Different pattern but same cell count (could be oscillating)
+            _samePatternCount = 0;
+            _lastGridHash = currentHash;
+        }
+        
+        // Track stagnation counter too
         if (++_stagnationCounter >= _maxStagnation) {
+            Serial.println("GOL: Stagnant pattern detected, resetting grid");
             randomize(_initialDensity);
             _stagnationCounter = 0;
+            _wipeCycleCount = 0;
+            _samePatternCount = 0;
+            _lastGridHash = 0;
         }
     } else {
+        // Pattern is still evolving
         _stagnationCounter = 0;
+        _samePatternCount = 0;
         _lastCellCount = cellCount;
+        _lastGridHash = calculateGridHash();
     }
 }
 
@@ -377,7 +468,9 @@ void GameOfLifeAnimation::calculateNextGrid() {
             
             // Handle state transitions
             if (isAlive && !willLive) {
-                handleCellDeath(x, y, idx);
+                // Mark the cell as dying, but don't start the animation yet
+                // The animation will start when the wipe cursor hits this column
+                setCellState(_dyingCells, x, y, true);
             } else if (!isAlive && willLive) {
                 handleCellBirth(x, y, idx);
             }
@@ -432,9 +525,13 @@ void GameOfLifeAnimation::drawGrid(bool ignoreWipePosition) {
         for (int x = 0; x < _width; x++) {
             // For the wipe effect, only show the cells up to the current wipe position
             // Skip anything beyond the current column in the wipe direction unless ignoreWipePosition is true
-            if (!ignoreWipePosition && 
-                ((_currentWipeDirection == LEFT_TO_RIGHT && x > _currentWipeColumn) ||
-                 (_currentWipeDirection == RIGHT_TO_LEFT && x < _currentWipeColumn))) {
+            // Check if this cell is within the wipe bar's range
+            bool isInWipeRange = ignoreWipePosition || 
+                   ((_currentWipeDirection == LEFT_TO_RIGHT && x <= _currentWipeColumn) ||
+                    (_currentWipeDirection == RIGHT_TO_LEFT && x >= _currentWipeColumn));
+                
+            // Only process cells inside the wipe range
+            if (!isInWipeRange) {
                 continue;
             }
             
@@ -443,16 +540,27 @@ void GameOfLifeAnimation::drawGrid(bool ignoreWipePosition) {
                 const uint8_t idx = getCellIndex(x, y);
                 const uint32_t currentTime = millis();
                 
+                // Check if this is a dying cell and this column was just reached by the wipe cursor
+                // We want to trigger the animation exactly when the cursor hits a dying cell
+                if (getCellState(_dyingCells, x, y)) {
+                    // Check if this is a newly revealed dying cell that needs animation start
+                    if (_fadeStartTime[idx] == 0) { 
+                        // This is the key fix: Only start death animation when wipe cursor reaches the cell
+                        handleCellDeath(x, y, idx);
+                    }
+                }
+                
                 if (getCellState(_grid1, x, y)) { // Is the cell alive in the current grid?
                     // Handle cells that are alive
                     uint8_t transitionProgress = _highlightIntensity[idx];
                     uint32_t fadeStartedAt = _fadeStartTime[idx];
                     
-                    if (fadeStartedAt > 0) { // This cell has started fading
+                    // Check if this is a new cell with birth highlight
+                    if (fadeStartedAt > 0) {
                         // Calculate how long this cell has been fading
                         uint32_t fadeTime = currentTime - fadeStartedAt;
-                        // Get this cell's custom fade duration
-                        const uint32_t FADE_DURATION_MS = _fadeDuration[idx];
+                        // Fixed fade duration of 1.4 seconds
+                        const uint32_t FADE_DURATION_MS = 1400; // Override with exactly 1.4 seconds
                         
                         if (fadeTime >= FADE_DURATION_MS) {
                             // Fade is complete, draw target color
@@ -463,60 +571,73 @@ void GameOfLifeAnimation::drawGrid(bool ignoreWipePosition) {
                             _highlightIntensity[idx] = 0;
                             _fadeStartTime[idx] = 0;
                         } else {
-                            // Calculate proportional fade (0-255)
+                            // Calculate proportional fade (0-255) over fade duration
                             uint8_t fadeProgress = (fadeTime * 255) / FADE_DURATION_MS;
                             uint8_t whiteAmount = 255 - fadeProgress;
                             
-                            // Blend between target color and white based on fade progress
+                            // Get the target color this cell should become
                             CRGB targetColor = _colorMap[idx];
                             
-                            // Ensure the target color isn't gray or white (potential stuck color)
-                            if ((targetColor.r == targetColor.g && targetColor.g == targetColor.b && targetColor.r > 0) ||
-                                (targetColor.r > 200 && targetColor.g > 200 && targetColor.b > 200)) {
-                                // Replace gray/white with a palette color
-                                targetColor = getNewColor();
-                                _colorMap[idx] = targetColor; // Update for future frames
+                            // Get the initial white brightness from the stored transition map
+                            CRGB transitionColor = _transitionMap[idx];
+                            
+                            // Special blending algorithm that maintains more vibrance during transition
+                            // This ensures cells start with bright white and maintain color saturation
+                            // as they transition to their final color
+                            CRGB blendedColor;
+                            
+                            // First phase (0-40%): Maintain white brightness but start introducing color
+                            if (fadeProgress < 102) { // 40% of 255
+                                // Start with white, gradually introduce target color hue
+                                float colorRatio = fadeProgress / 102.0f;
+                                blendedColor.r = transitionColor.r - (colorRatio * (transitionColor.r - targetColor.r * 1.5f));
+                                blendedColor.g = transitionColor.g - (colorRatio * (transitionColor.g - targetColor.g * 1.5f));
+                                blendedColor.b = transitionColor.b - (colorRatio * (transitionColor.b - targetColor.b * 1.5f));
+                            } 
+                            // Second phase (40-100%): Maintain color saturation while reducing brightness to target
+                            else {
+                                float finalRatio = (fadeProgress - 102) / 153.0f; // Remaining 60%
+                                blendedColor.r = lerp8by8(targetColor.r, targetColor.r * 1.5f, 255 - (255 * finalRatio));
+                                blendedColor.g = lerp8by8(targetColor.g, targetColor.g * 1.5f, 255 - (255 * finalRatio));
+                                blendedColor.b = lerp8by8(targetColor.b, targetColor.b * 1.5f, 255 - (255 * finalRatio));
                             }
                             
-                            targetColor.nscale8(_brightness);
-                            CRGB transitionColor = _transitionMap[idx];
-                            leds[ledIndex] = blend(targetColor, transitionColor, whiteAmount);
+                            // Assign the blended color to the LED
+                            leds[ledIndex] = blendedColor;
+                            
+                            // Apply global brightness
+                            leds[ledIndex].nscale8(_brightness);
                         }
-                    } else if (transitionProgress == 255) { // Cell is waiting to fade
-                        // Draw full white for cells that haven't started fading yet
-                        leds[ledIndex] = _transitionMap[idx];
-                    } else { // Not a fading cell
+                    } else {
+                        // Regular cell with no transition or birth highlight disabled
                         leds[ledIndex] = _colorMap[idx];
                         leds[ledIndex].nscale8(_brightness);
                     }
                 } else if (getCellState(_dyingCells, x, y)) { // Is this a dying cell?
-                    // Handle cells that are dying with a fade-out effect
+                    // Handle cells that are dying with blinking and fading effect
                     uint32_t fadeStartedAt = _fadeStartTime[idx];
                     
                     if (fadeStartedAt > 0) {
                         // Calculate how long this cell has been fading
                         uint32_t fadeTime = currentTime - fadeStartedAt;
-                        // Get this cell's custom fade duration
+                        // Get this cell's custom fade duration (should be 2 seconds)
                         const uint32_t FADE_DURATION_MS = _fadeDuration[idx];
                         
                         if (fadeTime >= FADE_DURATION_MS) {
-                            // Fade is complete, cell is now completely dead
+                            // Death animation is complete, cell is now completely dead
                             leds[ledIndex] = CRGB::Black;
                             
                             // Clear the dying flag since the animation is complete
                             setCellState(_dyingCells, x, y, false);
                             
                             // Reset ALL transition-related variables for this cell
-                            // This is critical to ensure no color data remains
                             _fadeStartTime[idx] = 0;
                             _fadeDuration[idx] = 0;
                             _highlightIntensity[idx] = 0;
                             _transitionMap[idx] = CRGB::Black;
                             _colorMap[idx] = CRGB::Black; // Also clear the color map
                         } else {
-                            // Calculate proportional fade (0-255)
-                            uint8_t fadeProgress = (fadeTime * 255) / FADE_DURATION_MS;
-                                                        // Get the original color this cell had before dying
+                            // Get the original color this cell had before dying
                             CRGB originalColor = _transitionMap[idx];
                             
                             // Safety check for invalid/black colors - skip transition
@@ -526,32 +647,50 @@ void GameOfLifeAnimation::drawGrid(bool ignoreWipePosition) {
                                 _fadeStartTime[idx] = 0;
                                 _highlightIntensity[idx] = 0;
                                 _transitionMap[idx] = CRGB::Black;
-                                _colorMap[idx] = CRGB::Black; // Ensure both are black
-                                leds[ledIndex] = CRGB::Black; // Draw black immediately
-                                continue; // Skip the rest of this cell's processing
+                                _colorMap[idx] = CRGB::Black;
+                                leds[ledIndex] = CRGB::Black;
+                                continue;
                             }
                             
-                            // Apply fade based on progress (255 = completely faded to black)
-                            uint8_t remaining = 255 - fadeProgress;
+                            // Calculate animation phase based on time
+                            // Animation sequence: 5 blinks -> brighten -> fade away
+                            float normalizedTime = (float)fadeTime / FADE_DURATION_MS;
                             
-                            // As cells get closer to black, make sure they're REALLY heading to pure black
-                            // This prevents cells from getting stuck with a faint color
-                            if (remaining < 64) {
-                                // When we're close to black, drop even faster to ensure complete darkness
-                                remaining = remaining / 2;
+                            if (normalizedTime < 0.5f) {
+                                // First half: 5 blinks over 1 second
+                                // Blink frequency: 5 Hz (10 transitions per second)
+                                bool blinkOn = (int)(fadeTime / 100) % 2 == 0; // 100ms per blink state
+                                
+                                if (blinkOn) {
+                                    // Show original cell color during blink ON phase
+                                    leds[ledIndex] = originalColor;
+                                    leds[ledIndex].nscale8(_brightness);
+                                } else {
+                                    // Show darker color during blink OFF phase (don't go completely black)
+                                    leds[ledIndex] = originalColor;
+                                    leds[ledIndex].nscale8(_brightness * 0.3); // 30% brightness
+                                }
+                            } else if (normalizedTime < 0.6f) {
+                                // Next 10%: Brighten the cell (0.5 - 0.6 of animation)
+                                leds[ledIndex] = originalColor;
+                                // Scale up brightness to 150% of normal
+                                uint8_t brighterValue = min(255, (_brightness * 3) / 2);
+                                leds[ledIndex].nscale8(brighterValue);
+                            } else {
+                                // Final 40%: Fade to black (0.6 - 1.0 of animation)
+                                float fadeOutProgress = (normalizedTime - 0.6f) / 0.4f; // 0.0 - 1.0 for fade out
+                                uint8_t remaining = 255 - (fadeOutProgress * 255);
+                                
+                                // Apply brightness and fade scaling
+                                leds[ledIndex] = originalColor;
+                                leds[ledIndex].nscale8(_brightness);
+                                leds[ledIndex].nscale8(remaining);
+                                
+                                // Ensure it goes completely black at the end
+                                if (remaining < 10) {
+                                    leds[ledIndex] = CRGB::Black;
+                                }
                             }
-                            
-                            // Apply brightness and fade scaling
-                            originalColor.nscale8(_brightness);
-                            originalColor.nscale8(remaining);
-                            
-                            // For almost-faded cells, ensure they're completely black
-                            if (remaining < 10) {
-                                originalColor = CRGB::Black;
-                            }
-                            
-                            // Set the LED to the calculated color
-                            leds[ledIndex] = originalColor;
                         }
                     }
                 } else {
@@ -590,6 +729,7 @@ void GameOfLifeAnimation::drawGrid(bool ignoreWipePosition) {
                 } else if (isDyingCell) {
                     // For dying cells, don't add ANY visual effect - just let them fade naturally
                     // Don't change the color or add any highlights
+                    // No code needed here - just skip any modifications
                 } else {
                     // COMPLETELY EMPTY cell - make sure it has no color data anywhere
                     _colorMap[idx] = CRGB::Black;
@@ -697,68 +837,7 @@ CRGB GameOfLifeAnimation::getNewColor() const {
     return CRGB(r, g, b);
 }
 
-void GameOfLifeAnimation::setUpdateInterval(unsigned long intervalMs) {
-    // Store the base update interval
-    _intervalMs = intervalMs;
-    
-    // Update wipe timing based on the current speed multiplier
-    updateWipeTimings();
-    
-    // Make sure we respond immediately to speed changes
-    _lastUpdateTime = millis() - _intervalMs;
-}
 
-void GameOfLifeAnimation::setSpeedMultiplier(float multiplier) {
-    // Constrain the multiplier to a reasonable range (0.1 to 20.0)
-    // This allows for a much wider range of speeds
-    multiplier = constrain(multiplier, 0.1f, 20.0f);
-    _speedMultiplier = multiplier;
-    
-    // Update wipe timing based on the new speed multiplier
-    updateWipeTimings();
-    
-    Serial.printf("Game of Life: Speed multiplier set to %.2f\n", _speedMultiplier);
-}
-
-// Set column skip value directly (for separate speed control slider)
-void GameOfLifeAnimation::setColumnSkip(int columnSkip) {
-    // Validate the input range
-    if (columnSkip < 1) columnSkip = 1;
-    if (columnSkip > 5) columnSkip = 5;
-    
-    // Store the column skip value
-    _columnSkipCount = columnSkip;
-    
-    Serial.printf("Game of Life column skip set to %d\n", _columnSkipCount);
-}
-
-// Helper method to update wipe timings based on speed multiplier
-void GameOfLifeAnimation::updateWipeTimings() {
-    // Define our thresholds and constants
-    const uint32_t BASE_WIPE_TIME = 500;   // Base wipe time (500ms at multiplier=1.0)
-    const uint32_t MIN_WIPE_TIME = 5;      // Absolute minimum wipe time (hardware limit)
-    
-    // We no longer calculate the column skip count here
-    // Instead we use the value set directly by the user through the column skip slider
-    // This _columnSkipCount value is updated via setColumnSkip() method
-    
-    // The speed multiplier directly affects the animation speed now,
-    // without automatically adjusting the column skip count
-    float effectiveMultiplier = _speedMultiplier;
-    
-    // Calculate the total wipe time based on the effective multiplier
-    _totalWipeTime = (uint32_t)(BASE_WIPE_TIME / effectiveMultiplier);
-    
-    // Ensure we don't go below minimum wipe time
-    if (_totalWipeTime < MIN_WIPE_TIME) _totalWipeTime = MIN_WIPE_TIME;
-    
-    // Calculate column delay based on total wipe time
-    _columnDelay = _totalWipeTime / _width;
-    
-    // Debug info
-    Serial.printf("GoL timing: multiplier=%.2f, skip=%d cols, wipe=%lu, delay=%lu\n", 
-                 _speedMultiplier, _columnSkipCount, _totalWipeTime, _columnDelay);
-}
 
 
 void GameOfLifeAnimation::setAllPalettes(const std::vector<std::vector<CRGB>>* allPalettes) {
@@ -773,6 +852,36 @@ void GameOfLifeAnimation::setCurrentPalette(int index) {
 
 void GameOfLifeAnimation::setUsePalette(bool usePalette) {
     _usePalette = usePalette;
+}
+
+void GameOfLifeAnimation::setUpdateInterval(unsigned long intervalMs) {
+    _intervalMs = intervalMs;
+    Serial.printf("Game of Life update interval set to %lu ms\n", intervalMs);
+}
+
+void GameOfLifeAnimation::setSpeedMultiplier(float multiplier) {
+    _speedMultiplier = multiplier;
+    updateWipeTimings();
+    Serial.printf("Game of Life speed multiplier set to %.2f\n", multiplier);
+}
+
+void GameOfLifeAnimation::setColumnSkip(int columnSkip) {
+    _columnSkipCount = max(1, columnSkip); // Ensure at least 1
+    Serial.printf("Game of Life column skip set to %d\n", _columnSkipCount);
+}
+
+
+
+// Calculate a unique-ish hash for the current grid state
+uint32_t GameOfLifeAnimation::calculateGridHash() const {
+    if (!_grid1) return 0;
+    
+    // Simple but effective hash calculation
+    uint32_t hash = 5381; // djb2 hash starting value
+    for (int i = 0; i < _gridSizeBytes; i++) {
+        hash = ((hash << 5) + hash) + _grid1[i]; // djb2 algorithm
+    }
+    return hash;
 }
 
 // Calculate how long a cell at position x should take to fade based on bar movement

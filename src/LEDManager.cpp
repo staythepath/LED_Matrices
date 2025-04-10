@@ -565,16 +565,16 @@ void LEDManager::createPalettes() {
     };
 
     PALETTE_NAMES = {
-        "blu_orange_green",
-        "cool_sunset",
-        "neon_tropical",
-        "galaxy",
-        "forest_fire",
-        "cotton_candy",
-        "sea_shore",
-        "fire_and_ice",
-        "retro_arcade",
-        "royal_rainbow"
+        "BOG",
+        "Cool Sunset",
+        "Neon Tropical",
+        "Galaxy",
+        "Forest Fire",
+        "Cotton Candy",
+        "Sea Shore",
+        "Fire and Ice",
+        "Retro Arcade",
+        "Royal Rainbow"
     };
 }
 
@@ -740,8 +740,7 @@ int LEDManager::getRotation(String panel) const {
 }
 
 void LEDManager::setUpdateSpeed(unsigned long speed){
-    if(speed>=4
-         && speed<=1500){
+    if(speed>= 10 && speed<=1500){
         ledUpdateInterval=speed;
         Serial.printf("LED update speed set to %lu ms\n", speed);
         if(_currentAnimationIndex==0 && _currentAnimation){
@@ -768,47 +767,24 @@ void LEDManager::setUpdateSpeed(unsigned long speed){
         else if(_currentAnimationIndex == 4 && _currentAnimation){
             GameOfLifeAnimation* gA = static_cast<GameOfLifeAnimation*>(_currentAnimation);
             
-            // Fixed update interval for Game of Life - 15ms
-            gA->setUpdateInterval(15);
+            // Use a simple linear mapping for Game of Life speed control
+            // High UI speed (small value) = high multiplier
+            // Low UI speed (large value) = low multiplier
+            float multiplier = 10.0f - (9.0f * speed / 1500.0f);
             
-            // Calculate multiplier using stepped approach to match our new thresholds
-            // This maps speeds to multipliers with several transition points
-            // 1) At multiplier 1.0-4.0: Show every column, gradually increase speed
-            // 2) At multiplier 4.0-8.0: Skip to every other column (2), starting at ~55% max speed
-            // 3) At multiplier 8.0-12.0: Skip to every third column (3), starting at ~37.5% max speed
-            // 4) At multiplier 12.0-16.0: Skip to every fourth column (4), starting at ~30% max speed
-            // 5) At multiplier 16.0+: Skip to every fifth column (5), starting at ~25% max speed
-            float multiplier;
+            // Constrain to reasonable range
+            multiplier = constrain(multiplier, 1.0f, 10.0f);
             
-            if (speed >= 800) {
-                // Very slow speeds: use slow multipliers (< 1.0)
-                multiplier = 0.1f + (0.9f * (1500.0f - speed) / 700.0f);
-                multiplier = constrain(multiplier, 0.1f, 1.0f);
-            } else if (speed >= 500) {
-                // Medium-slow speeds: use 1.0 to 4.0 range (every column shown)
-                multiplier = 1.0f + (3.0f * (800.0f - speed) / 300.0f);
-            } else if (speed >= 300) {
-                // Medium speeds: use 4.0 to 8.0 range (every other column)
-                multiplier = 4.0f + (4.0f * (500.0f - speed) / 200.0f);
-            } else if (speed >= 150) {
-                // Medium-fast speeds: use 8.0 to 12.0 range (every third column)
-                multiplier = 8.0f + (4.0f * (300.0f - speed) / 150.0f);
-            } else if (speed >= 50) {
-                // Fast speeds: use 12.0 to 16.0 range (every fourth column)
-                multiplier = 12.0f + (4.0f * (150.0f - speed) / 100.0f);
-            } else {
-                // Very fast speeds: use 16.0 to 20.0 range (every fifth column)
-                multiplier = 16.0f + (4.0f * (50.0f - max(10UL, speed)) / 40.0f);
-                multiplier = constrain(multiplier, 16.0f, 20.0f);
-            }
-            
-            Serial.printf("Game of Life: speed=%lu ms, using stepped multiplier=%.2f\n", 
-                         speed, multiplier);
-                         
+            // Update interval and speed parameters directly
+            gA->setUpdateInterval(15); // Fixed base update rate
             gA->setSpeedMultiplier(multiplier);
+            
+            Serial.printf("Game of Life: speed=%lu ms, simplified multiplier=%.2f\n", 
+                         speed, multiplier);
         }
     }
 }
+
 unsigned long LEDManager::getUpdateSpeed() const {
     return ledUpdateInterval;
 }
@@ -833,7 +809,7 @@ int LEDManager::getColumnSkip() const {
 }
 
 void LEDManager::setSpeed(int speed) {
-    if (!_currentAnimation) return;
+    if (speed < 0 || speed > 100) return;
     
     // Validate and constrain input
     speed = constrain(speed, 0, 100);
