@@ -20,3 +20,5 @@ src/credentials.cpp
 *.hex
 *.out
 
+.pio/
+.vscode/

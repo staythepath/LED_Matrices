@@ -4,6 +4,8 @@
 LogManager::LogManager() {
     // Create mutex for thread safety
     logMutex = xSemaphoreCreateMutex();
+    pendingFlushCount = 0;
+    lastFlushMillis = millis();
     
     // Attempt to load logs from file
     loadLogsFromFile();
@@ -13,6 +15,7 @@ LogManager::LogManager() {
 }
 
 void LogManager::log(LogLevel level, const String& message) {
+    bool shouldFlush = false;
     // Take mutex
     if (logMutex != NULL && xSemaphoreTake(logMutex, pdMS_TO_TICKS(500)) == pdTRUE) {
         // Trim logs if exceeding maximum
@@ -40,8 +43,14 @@ void LogManager::log(LogLevel level, const String& message) {
         xSemaphoreGive(logMutex);
         
         // Save to file at INFO level and above
-        if (level >= INFO && level % 10 == 0) { // Save every 10th INFO or above message to reduce writes
-            saveLogsToFile();
+        if (level >= INFO) {
+            pendingFlushCount++;
+            if (level >= ERROR || pendingFlushCount >= FLUSH_THRESHOLD ||
+                (millis() - lastFlushMillis) >= FLUSH_INTERVAL_MS) {
+                shouldFlush = true;
+                pendingFlushCount = 0;
+                lastFlushMillis = millis();
+            }
         }
     } else {
         // Mutex timeout - just print to Serial
@@ -50,6 +59,10 @@ void LogManager::log(LogLevel level, const String& message) {
         Serial.print(levelToString(level));
         Serial.print("-MUTEX_TIMEOUT] ");
         Serial.println(message);
+    }
+
+    if (shouldFlush) {
+        saveLogsToFile();
     }
 }
 
@@ -141,6 +154,8 @@ bool LogManager::saveLogsToFile() {
             
             file.close();
             success = true;
+            pendingFlushCount = 0;
+            lastFlushMillis = millis();
         } else {
             Serial.println("Failed to open log file for writing");
         }
@@ -234,10 +249,15 @@ bool LogManager::loadLogsFromFile() {
     }
     
     SPIFFS.end();
+    if (success) {
+        pendingFlushCount = 0;
+        lastFlushMillis = millis();
+    }
     return success;
 }
 
 void LogManager::clearLogs() {
+    bool cleared = false;
     // Take mutex
     if (logMutex != NULL && xSemaphoreTake(logMutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
         // Clear logs
@@ -249,14 +269,18 @@ void LogManager::clearLogs() {
         entry.level = INFO;
         entry.message = "Logs cleared";
         logs.push_back(entry);
-        
-        // Save to file
-        saveLogsToFile();
+        pendingFlushCount = 0;
+        lastFlushMillis = millis();
+        cleared = true;
         
         // Release mutex
         xSemaphoreGive(logMutex);
     } else {
         Serial.println("Failed to acquire log mutex for clearing");
+    }
+
+    if (cleared) {
+        saveLogsToFile();
     }
 }
 

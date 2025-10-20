@@ -3,9 +3,11 @@
 
 #include <Arduino.h>
 #include <vector>
-#include <String.h>
 #include <FS.h>
 #include <SPIFFS.h>
+
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 // Maximum log entries to keep in memory (to avoid running out of memory)
 #define MAX_LOG_ENTRIES 1000
@@ -72,6 +74,12 @@ private:
     
     // Mutex for thread safety
     SemaphoreHandle_t logMutex;
+
+    // Flush bookkeeping
+    uint16_t pendingFlushCount;
+    unsigned long lastFlushMillis;
+    static constexpr uint16_t FLUSH_THRESHOLD = 12;
+    static constexpr unsigned long FLUSH_INTERVAL_MS = 60000;
 };
 
 // Global log function for easy access
