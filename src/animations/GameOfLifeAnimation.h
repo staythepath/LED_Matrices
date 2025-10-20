@@ -5,6 +5,7 @@
 #define GAMEOFLIFEANIMATION_H
 
 #include "BaseAnimation.h"
+#include <array>
 #include <vector>
 
 class GameOfLifeAnimation : public BaseAnimation {
@@ -20,7 +21,12 @@ public:
     virtual void update() override;
     
     // Set simulation speed (interval between generations)
-    void setSpeed(uint8_t speed) { _intervalMs = map(speed, 0, 255, 50, 1000); }
+    void setSpeed(uint8_t speed) {
+        const long minInterval = 20;
+        const long maxInterval = 500;
+        long mapped = map(speed, 0, 255, minInterval, maxInterval);
+        _intervalMs = static_cast<uint32_t>(constrain(mapped, minInterval, maxInterval));
+    }
     
     // Set panel rotation angles and order
     void setRotationAngle1(int angle) { _rotationAngle1 = angle; }
@@ -51,9 +57,15 @@ private:
     
     // Count the number of live cells
     int countLiveCells();
+
+    // Reset history buffers and stagnation tracking
+    void resetHistory();
+
+    // Compute a simple hash for the current grid state
+    uint32_t computeStateHash(const uint8_t* grid) const;
+    void rotateCoordinates(int& x, int& y, int angle) const;
     
     // Animation state
-    uint32_t _frameCount;       // Frame counter
     uint32_t _intervalMs;       // Milliseconds between updates
     uint32_t _lastUpdateTime;   // Last update timestamp
     
@@ -78,6 +90,12 @@ private:
     // Color and palette
     const std::vector<std::vector<CRGB>>* _allPalettes;  // Pointer to all palettes
     const std::vector<CRGB>* _currentPalette;           // Current palette
+
+    // Recent state tracking for stagnation detection
+    static constexpr uint8_t HISTORY_DEPTH = 6;
+    std::array<uint32_t, HISTORY_DEPTH> _stateHistory;
+    std::array<bool, HISTORY_DEPTH> _historyValid;
+    uint8_t _historyIndex;
 };
 
 #endif // GAMEOFLIFEANIMATION_H

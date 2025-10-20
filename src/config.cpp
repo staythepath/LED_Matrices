@@ -1,5 +1,17 @@
 #include "config.h"
-#include "credentials.h" // Use macro definitions
+
+// Use optional credentials.h if present; otherwise provide safe defaults
+#if defined(__has_include)
+#  if __has_include("credentials.h")
+#    include "credentials.h"
+#  else
+#    define WIFI_SSID     "ESP32_LEDMatrix"
+#    define WIFI_PASSWORD "changeme1234"
+#  endif
+#else
+// Fallback for toolchains without __has_include
+#  include "credentials.h"
+#endif
 
 // Define LCD pins here (values assigned once)
 const int rs = 19;

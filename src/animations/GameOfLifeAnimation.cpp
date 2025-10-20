@@ -4,6 +4,7 @@
 #include "GameOfLifeAnimation.h"
 #include <Arduino.h>
 #include <FastLED.h>
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 
@@ -13,7 +14,6 @@ extern CRGB leds[];
 // Constructor
 GameOfLifeAnimation::GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, int panelCount)
     : BaseAnimation(numLeds, brightness, panelCount),
-      _frameCount(0),
       _intervalMs(150),  // Default update interval
       _lastUpdateTime(0),
       _grid1(nullptr),
@@ -21,14 +21,15 @@ GameOfLifeAnimation::GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, i
       _width(0),
       _height(0),
       _stagnationCounter(0),
-      _maxStagnation(100), // Reset after 100 identical generations
+      _maxStagnation(45), // Reset after repeated generations
       _lastCellCount(0),
       _panelOrder(0),
       _rotationAngle1(0),
       _rotationAngle2(0),
       _rotationAngle3(0),
       _currentPalette(nullptr),
-      _allPalettes(nullptr)
+      _allPalettes(nullptr),
+      _historyIndex(0)
 {
     // Calculate dimensions based on panel count (assuming square panels)
     _width = 16;  // Default width for one panel
@@ -57,6 +58,8 @@ GameOfLifeAnimation::GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, i
         _grid1 = nullptr;
         _grid2 = nullptr;
     }
+
+    resetHistory();
 }
 
 // Destructor
@@ -88,9 +91,7 @@ void GameOfLifeAnimation::begin() {
     }
     
     // Reset animation state
-    _frameCount = 0;
     _lastUpdateTime = millis();
-    _stagnationCounter = 0;
     
     // Start with a random pattern
     randomize(33); // 33% initial density
@@ -104,43 +105,25 @@ void GameOfLifeAnimation::update() {
         return;
     }
     
-    _frameCount++;
-    
-    // Only update the simulation every 3 frames to reduce CPU load
-    if (_frameCount % 3 != 0) {
-        // Still draw the current state on non-update frames
-        drawGrid();
-        return;
-    }
-    
     // Check if it's time to update the simulation
     unsigned long currentTime = millis();
     if (currentTime - _lastUpdateTime < _intervalMs) {
         return;
     }
     _lastUpdateTime = currentTime;
-    
-    // Count cells before update
+
+    // Count cells and evaluate current state
     int cellCount = countLiveCells();
-    
-    // Check for stagnation
-    if (cellCount == _lastCellCount) {
-        _stagnationCounter++;
-        
-        // If stagnation lasted for too long, reset the simulation
-        if (_stagnationCounter >= _maxStagnation) {
-            Serial.println("GameOfLife: Detected stagnation, resetting simulation");
-            randomize(33);
-            _stagnationCounter = 0;
-            drawGrid();
-            return;
+    uint32_t stateHash = computeStateHash(_grid1);
+
+    bool repeatedState = false;
+    for (uint8_t i = 0; i < HISTORY_DEPTH; ++i) {
+        if (_historyValid[i] && _stateHistory[i] == stateHash) {
+            repeatedState = true;
+            break;
         }
-    } else {
-        // Reset stagnation counter if the number of cells changed
-        _stagnationCounter = 0;
-        _lastCellCount = cellCount;
     }
-    
+
     // Check for extinction
     if (cellCount == 0) {
         Serial.println("GameOfLife: All cells died, resetting simulation");
@@ -148,7 +131,28 @@ void GameOfLifeAnimation::update() {
         drawGrid();
         return;
     }
-    
+
+    if (repeatedState) {
+        _stagnationCounter = std::min(_stagnationCounter + 2, _maxStagnation);
+    } else if (cellCount == _lastCellCount) {
+        _stagnationCounter = std::min(_stagnationCounter + 1, _maxStagnation);
+    } else {
+        _stagnationCounter = 0;
+    }
+
+    if (_stagnationCounter >= _maxStagnation) {
+        Serial.println("GameOfLife: Detected repeating pattern, resetting simulation");
+        randomize(33);
+        drawGrid();
+        return;
+    }
+
+    // Record current state for future detection
+    _stateHistory[_historyIndex] = stateHash;
+    _historyValid[_historyIndex] = true;
+    _historyIndex = (_historyIndex + 1) % HISTORY_DEPTH;
+    _lastCellCount = cellCount;
+
     // Update simulation
     updateGrid();
     
@@ -158,10 +162,16 @@ void GameOfLifeAnimation::update() {
 
 // Randomize the grid with a given density (0-100%)
 void GameOfLifeAnimation::randomize(uint8_t density) {
-    if (!_grid1) return;
+    if (!_grid1 || !_grid2) return;
+
+    density = constrain(density, (uint8_t)0, (uint8_t)100);
+
+    resetHistory();
+    _lastUpdateTime = millis();
     
     // Reset the simulation state
     memset(_grid1, 0, _gridSizeBytes);
+    memset(_grid2, 0, _gridSizeBytes);
     
     // Add random live cells based on density
     for (int y = 0; y < _height; y++) {
@@ -193,6 +203,7 @@ void GameOfLifeAnimation::setPattern(int patternId) {
 // Update the simulation by one generation
 void GameOfLifeAnimation::updateGrid() {
     // We're using two grids: _grid1 is the current state, _grid2 will be the next state
+    memset(_grid2, 0, _gridSizeBytes);
     
     // For each cell in the grid
     for (int y = 0; y < _height; y++) {
@@ -240,8 +251,6 @@ void GameOfLifeAnimation::updateGrid() {
             // Set the cell's state in the next generation
             if (willBeAlive) {
                 _grid2[cellIndex] |= (1 << cellBit);  // Set bit to 1
-            } else {
-                _grid2[cellIndex] &= ~(1 << cellBit); // Set bit to 0
             }
         }
     }
@@ -292,14 +301,78 @@ void GameOfLifeAnimation::drawGrid() {
 
 // Map x,y coordinates to LED index based on rotation and panel order
 int GameOfLifeAnimation::mapXYtoLED(int x, int y) {
-    // This mapping function needs to be customized based on your LED layout
-    // and panel arrangement.
+    const int panelSize = 16;
+
+    if (x < 0 || y < 0 || x >= _width || y >= _height) {
+        return -1;
+    }
+
+    int panel = x / panelSize;
+    if (panel < 0 || panel >= _panelCount) {
+        return -1;
+    }
+
+    int localX = x % panelSize;
+    int localY = y;
+
+    // Apply panel-specific rotation (supporting up to three configured panels)
+    int rotation = 0;
+    if (panel == 0) {
+        rotation = _rotationAngle1;
+    } else if (panel == 1) {
+        rotation = _rotationAngle2;
+    } else if (panel == 2) {
+        rotation = _rotationAngle3;
+    }
+    rotateCoordinates(localX, localY, rotation);
+
+    // Account for serpentine wiring
+    if (localY % 2 != 0) {
+        localX = (panelSize - 1) - localX;
+    }
+
+    int effectivePanel = (_panelOrder == 0) ? panel : (_panelCount - 1 - panel);
+    int index = effectivePanel * panelSize * panelSize + localY * panelSize + localX;
+
+    if (index < 0 || index >= _numLeds) {
+        return -1;
+    }
     
-    // For now, assume a simple row-major layout with 16x16 grid
-    // TODO: Implement proper mapping with rotation and panel order
-    
-    // Simple row-major ordering
-    return y * _width + x;
+    return index;
+}
+
+void GameOfLifeAnimation::rotateCoordinates(int& x, int& y, int angle) const {
+    const int panelSize = 16;
+    int normalizedAngle = angle % 360;
+    if (normalizedAngle < 0) {
+        normalizedAngle += 360;
+    }
+
+    int tmpX, tmpY;
+    switch (normalizedAngle) {
+        case 0:
+            break;
+        case 90:
+            tmpX = y;
+            tmpY = panelSize - 1 - x;
+            x = tmpX;
+            y = tmpY;
+            break;
+        case 180:
+            tmpX = panelSize - 1 - x;
+            tmpY = panelSize - 1 - y;
+            x = tmpX;
+            y = tmpY;
+            break;
+        case 270:
+            tmpX = panelSize - 1 - y;
+            tmpY = x;
+            x = tmpX;
+            y = tmpY;
+            break;
+        default:
+            break;
+    }
 }
 
 // Count the number of live cells
@@ -320,6 +393,27 @@ int GameOfLifeAnimation::countLiveCells() {
     }
     
     return count;
+}
+
+void GameOfLifeAnimation::resetHistory() {
+    _stagnationCounter = 0;
+    _historyIndex = 0;
+    _lastCellCount = -1;
+    std::fill(_stateHistory.begin(), _stateHistory.end(), 0u);
+    std::fill(_historyValid.begin(), _historyValid.end(), false);
+}
+
+uint32_t GameOfLifeAnimation::computeStateHash(const uint8_t* grid) const {
+    if (!grid) {
+        return 0;
+    }
+
+    uint32_t hash = 2166136261u; // FNV-1a 32-bit offset basis
+    for (int i = 0; i < _gridSizeBytes; ++i) {
+        hash ^= grid[i];
+        hash *= 16777619u; // FNV prime
+    }
+    return hash;
 }
 
 // Set current palette

@@ -4,6 +4,8 @@
 #include <FastLED.h>
 #include <vector>
 #include <Arduino.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 // Up to 8 panels of 16×16
 static const int MAX_LEDS = 16 * 16 * 8;
@@ -71,6 +73,19 @@ public:
     void setUpdateSpeed(unsigned long speed);
     unsigned long getUpdateSpeed() const;
 
+    bool beginExclusiveAccess(uint32_t timeoutMs = 1000) const;
+    void endExclusiveAccess() const;
+
+    class LockGuard {
+    public:
+        LockGuard(LEDManager& manager, uint32_t timeoutMs = 1000);
+        ~LockGuard();
+        bool locked() const;
+    private:
+        LEDManager& _manager;
+        bool _locked;
+    };
+
 private:
     // Re-init FastLED if panelCount changes
     void reinitFastLED();
@@ -108,6 +123,8 @@ private:
 
     unsigned long ledUpdateInterval;
     unsigned long lastLedUpdate;
+
+    mutable SemaphoreHandle_t _stateMutex;
 };
 
 #endif // LEDMANAGER_H

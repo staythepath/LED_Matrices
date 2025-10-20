@@ -18,6 +18,27 @@
 // Up to 8 panels of 16×16
 CRGB leds[MAX_LEDS];
 
+#define LEDMANAGER_LOCK_OR_RETURN(timeoutMs)                         \
+    LockGuard lock(*this, timeoutMs);                                \
+    if (!lock.locked()) {                                            \
+        Serial.printf("%s failed to obtain LEDManager mutex\n", __func__); \
+        return;                                                      \
+    }
+
+#define LEDMANAGER_LOCK_OR_RETURN_VALUE(timeoutMs, defaultValue)     \
+    LockGuard lock(*this, timeoutMs);                                \
+    if (!lock.locked()) {                                            \
+        Serial.printf("%s failed to obtain LEDManager mutex\n", __func__); \
+        return defaultValue;                                         \
+    }
+
+#define LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(timeoutMs, defaultValue)               \
+    LockGuard lock(const_cast<LEDManager&>(*this), timeoutMs);                       \
+    if (!lock.locked()) {                                                            \
+        Serial.printf("%s failed to obtain LEDManager mutex\n", __func__);           \
+        return defaultValue;                                                         \
+    }
+
 LEDManager::LEDManager()
     : _panelCount(2) // default
     , _numLeds(_panelCount * 16 * 16)
@@ -36,7 +57,12 @@ LEDManager::LEDManager()
     , ledUpdateInterval(38)
     , lastLedUpdate(0)
     , _isInitializing(true)
+    , _stateMutex(xSemaphoreCreateRecursiveMutex())
 {
+    if (_stateMutex == nullptr) {
+        Serial.println("LEDManager: Failed to create state mutex!");
+    }
+
     createPalettes();
     _animationNames.push_back("Traffic");     // index=0
     _animationNames.push_back("Blink");       // index=1
@@ -45,7 +71,36 @@ LEDManager::LEDManager()
     _animationNames.push_back("GameOfLife");  // index=4
 }
 
+bool LEDManager::beginExclusiveAccess(uint32_t timeoutMs) const {
+    if (_stateMutex == nullptr) {
+        return true;
+    }
+    return xSemaphoreTakeRecursive(_stateMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE;
+}
+
+void LEDManager::endExclusiveAccess() const {
+    if (_stateMutex != nullptr) {
+        xSemaphoreGiveRecursive(_stateMutex);
+    }
+}
+
+LEDManager::LockGuard::LockGuard(LEDManager& manager, uint32_t timeoutMs)
+    : _manager(manager)
+    , _locked(manager.beginExclusiveAccess(timeoutMs)) {
+}
+
+LEDManager::LockGuard::~LockGuard() {
+    if (_locked) {
+        _manager.endExclusiveAccess();
+    }
+}
+
+bool LEDManager::LockGuard::locked() const {
+    return _locked;
+}
+
 void LEDManager::begin() {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
     reinitFastLED();
     showLoadingAnimation();
 }
@@ -66,6 +121,7 @@ void LEDManager::showLoadingAnimation() {
 }
 
 void LEDManager::finishInitialization() {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
     Serial.println("Finishing initialization, switching to main animation");
     
     // Check memory before proceeding
@@ -87,6 +143,7 @@ void LEDManager::finishInitialization() {
 }
 
 void LEDManager::reinitFastLED() {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
     FastLED.clear(true);
     FastLED.setBrightness(_brightness);
 
@@ -100,6 +157,11 @@ void LEDManager::reinitFastLED() {
 }
 
 void LEDManager::update() {
+    LockGuard lock(*this, 0);
+    if (!lock.locked()) {
+        return;
+    }
+
     if (_isInitializing) {
         showLoadingAnimation();
         return;
@@ -179,6 +241,7 @@ void LEDManager::configureCurrentAnimation() {
 }
 
 void LEDManager::cleanupAnimation() {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
     if (_currentAnimation) {
         _currentAnimation->end();
         // Add a delay before deletion to ensure resources are properly cleaned up
@@ -191,6 +254,7 @@ void LEDManager::cleanupAnimation() {
 }
 
 void LEDManager::setAnimation(int index) {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
     // Validate animation index
     if (index < 0 || index >= (int)_animationNames.size()) {
         Serial.printf("Invalid animation index: %d\n", index);
@@ -270,6 +334,7 @@ void LEDManager::setAnimation(int index) {
 }
 
 void LEDManager::setPanelCount(int count) {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
     if(count<1) count=1;
     if(count>8) count=8;
 
@@ -338,10 +403,12 @@ void LEDManager::setPanelCount(int count) {
 }
 
 int LEDManager::getPanelCount() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, _panelCount);
     return _panelCount;
 }
 
 void LEDManager::identifyPanels(){
+    LEDMANAGER_LOCK_OR_RETURN(1000);
     Serial.println("identifyPanels() invoked, blocking 10s...");
     int oldIdx = _currentAnimationIndex;
     cleanupAnimation();
@@ -519,6 +586,7 @@ void LEDManager::createPalettes() {
 }
 
 void LEDManager::setBrightness(uint8_t b){
+    LEDMANAGER_LOCK_OR_RETURN(1000);
     _brightness=b;
     FastLED.setBrightness(_brightness);
 
@@ -528,10 +596,12 @@ void LEDManager::setBrightness(uint8_t b){
 }
 
 uint8_t LEDManager::getBrightness() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, _brightness);
     return _brightness;
 }
 
 void LEDManager::setPalette(int idx){
+    LEDMANAGER_LOCK_OR_RETURN(1000);
     if(idx>=0 && idx<(int)ALL_PALETTES.size()){
         currentPalette= idx;
         Serial.printf("Palette %d (%s) selected.\n", idx, PALETTE_NAMES[idx].c_str());
@@ -543,30 +613,39 @@ void LEDManager::setPalette(int idx){
             BlinkAnimation* bA = static_cast<BlinkAnimation*>(_currentAnimation);
             bA->setPalette(&ALL_PALETTES[currentPalette]);
         }
+        else if(_currentAnimationIndex==4 && _currentAnimation){
+            auto* g = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+            g->setCurrentPalette(currentPalette);
+        }
     }
 }
 
 int LEDManager::getCurrentPalette() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, currentPalette);
     return currentPalette;
 }
 size_t LEDManager::getPaletteCount() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, 0);
     return PALETTE_NAMES.size();
 }
 String LEDManager::getPaletteNameAt(int i) const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, String("Unknown"));
     if(i>=0 && i<(int)PALETTE_NAMES.size()){
         return PALETTE_NAMES[i];
     }
     return "Unknown";
 }
 const std::vector<CRGB>& LEDManager::getCurrentPaletteColors() const {
+    static std::vector<CRGB> dummy;
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, dummy);
     if (currentPalette<0 || currentPalette>=(int)ALL_PALETTES.size()){
-        static std::vector<CRGB> dummy;
         return dummy;
     }
     return ALL_PALETTES[currentPalette];
 }
 
 void LEDManager::setSpawnRate(float r){
+    LEDMANAGER_LOCK_OR_RETURN(1000);
     spawnRate=r;
     if(_currentAnimationIndex==0 && _currentAnimation){
         TrafficAnimation* t = static_cast<TrafficAnimation*>(_currentAnimation);
@@ -574,10 +653,12 @@ void LEDManager::setSpawnRate(float r){
     }
 }
 float LEDManager::getSpawnRate() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, spawnRate);
     return spawnRate;
 }
 
 void LEDManager::setMaxFlakes(int m){
+    LEDMANAGER_LOCK_OR_RETURN(1000);
     maxFlakes=m;
     if(_currentAnimationIndex==0 && _currentAnimation){
         TrafficAnimation* t = static_cast<TrafficAnimation*>(_currentAnimation);
@@ -585,10 +666,12 @@ void LEDManager::setMaxFlakes(int m){
     }
 }
 int LEDManager::getMaxFlakes() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, maxFlakes);
     return maxFlakes;
 }
 
 void LEDManager::setTailLength(int l){
+    LEDMANAGER_LOCK_OR_RETURN(1000);
     tailLength=l;
     if(_currentAnimationIndex==0 && _currentAnimation){
         TrafficAnimation* t = static_cast<TrafficAnimation*>(_currentAnimation);
@@ -596,10 +679,12 @@ void LEDManager::setTailLength(int l){
     }
 }
 int LEDManager::getTailLength() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, tailLength);
     return tailLength;
 }
 
 void LEDManager::setFadeAmount(uint8_t a){
+    LEDMANAGER_LOCK_OR_RETURN(1000);
     fadeAmount=a;
     if(_currentAnimationIndex==0 && _currentAnimation){
         TrafficAnimation* t = static_cast<TrafficAnimation*>(_currentAnimation);
@@ -607,18 +692,34 @@ void LEDManager::setFadeAmount(uint8_t a){
     }
 }
 uint8_t LEDManager::getFadeAmount() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, fadeAmount);
     return fadeAmount;
 }
 
 void LEDManager::swapPanels(){
+    LEDMANAGER_LOCK_OR_RETURN(1000);
     panelOrder=1-panelOrder;
     Serial.println("Panels swapped successfully.");
-    if(_currentAnimationIndex==0 && _currentAnimation){
-        TrafficAnimation* t = static_cast<TrafficAnimation*>(_currentAnimation);
+    if(!_currentAnimation) {
+        return;
+    }
+
+    if(_currentAnimationIndex==0){
+        auto* t = static_cast<TrafficAnimation*>(_currentAnimation);
         t->setPanelOrder(panelOrder);
+    } else if(_currentAnimationIndex==2){
+        auto* w = static_cast<RainbowWaveAnimation*>(_currentAnimation);
+        w->setPanelOrder(panelOrder);
+    } else if(_currentAnimationIndex==3){
+        auto* f = static_cast<FireworkAnimation*>(_currentAnimation);
+        f->setPanelOrder(panelOrder);
+    } else if(_currentAnimationIndex==4){
+        auto* g = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        g->setPanelOrder(panelOrder);
     }
 }
 void LEDManager::setPanelOrder(String order){
+    LEDMANAGER_LOCK_OR_RETURN(1000);
     if(order.equalsIgnoreCase("left")){
         panelOrder=0;
         Serial.println("Panel order set to LEFT first.");
@@ -630,13 +731,27 @@ void LEDManager::setPanelOrder(String order){
     else{
         return;
     }
-    if(_currentAnimationIndex==0 && _currentAnimation){
-        TrafficAnimation* t = static_cast<TrafficAnimation*>(_currentAnimation);
+    if(!_currentAnimation) {
+        return;
+    }
+
+    if(_currentAnimationIndex==0){
+        auto* t = static_cast<TrafficAnimation*>(_currentAnimation);
         t->setPanelOrder(panelOrder);
+    } else if(_currentAnimationIndex==2){
+        auto* w = static_cast<RainbowWaveAnimation*>(_currentAnimation);
+        w->setPanelOrder(panelOrder);
+    } else if(_currentAnimationIndex==3){
+        auto* f = static_cast<FireworkAnimation*>(_currentAnimation);
+        f->setPanelOrder(panelOrder);
+    } else if(_currentAnimationIndex==4){
+        auto* g = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        g->setPanelOrder(panelOrder);
     }
 }
 
 void LEDManager::rotatePanel(String panel, int angle){
+    LEDMANAGER_LOCK_OR_RETURN(1000);
     if(!(angle==0||angle==90||angle==180||angle==270)){
         Serial.printf("Invalid rotation angle: %d\n", angle);
         return;
@@ -644,26 +759,52 @@ void LEDManager::rotatePanel(String panel, int angle){
     if(panel.equalsIgnoreCase("panel1")){
         rotationAngle1=angle;
         Serial.printf("Panel1 angle set to %d\n", angle);
-        if(_currentAnimationIndex==0 && _currentAnimation){
-            TrafficAnimation* t = static_cast<TrafficAnimation*>(_currentAnimation);
-            t->setRotationAngle1(angle);
+        if(_currentAnimation){
+            if(_currentAnimationIndex==0){
+                static_cast<TrafficAnimation*>(_currentAnimation)->setRotationAngle1(angle);
+            } else if(_currentAnimationIndex==2){
+                static_cast<RainbowWaveAnimation*>(_currentAnimation)->setRotationAngle1(angle);
+            } else if(_currentAnimationIndex==3){
+                static_cast<FireworkAnimation*>(_currentAnimation)->setRotationAngle1(angle);
+            } else if(_currentAnimationIndex==4){
+                static_cast<GameOfLifeAnimation*>(_currentAnimation)->setRotationAngle1(angle);
+            }
         }
     }
     else if(panel.equalsIgnoreCase("panel2")){
         rotationAngle2=angle;
         Serial.printf("Panel2 angle set to %d\n", angle);
-        if(_currentAnimationIndex==0 && _currentAnimation){
-            TrafficAnimation* t = static_cast<TrafficAnimation*>(_currentAnimation);
-            t->setRotationAngle2(angle);
+        if(_currentAnimation){
+            if(_currentAnimationIndex==0){
+                static_cast<TrafficAnimation*>(_currentAnimation)->setRotationAngle2(angle);
+            } else if(_currentAnimationIndex==2){
+                static_cast<RainbowWaveAnimation*>(_currentAnimation)->setRotationAngle2(angle);
+            } else if(_currentAnimationIndex==3){
+                static_cast<FireworkAnimation*>(_currentAnimation)->setRotationAngle2(angle);
+            } else if(_currentAnimationIndex==4){
+                static_cast<GameOfLifeAnimation*>(_currentAnimation)->setRotationAngle2(angle);
+            }
         }
     }
     else if(panel.equalsIgnoreCase("panel3")){
         rotationAngle3=angle;
         Serial.printf("Panel3 angle set to %d\n", angle);
+        if(_currentAnimation){
+            if(_currentAnimationIndex==0){
+                static_cast<TrafficAnimation*>(_currentAnimation)->setRotationAngle3(angle);
+            } else if(_currentAnimationIndex==2){
+                static_cast<RainbowWaveAnimation*>(_currentAnimation)->setRotationAngle3(angle);
+            } else if(_currentAnimationIndex==3){
+                static_cast<FireworkAnimation*>(_currentAnimation)->setRotationAngle3(angle);
+            } else if(_currentAnimationIndex==4){
+                static_cast<GameOfLifeAnimation*>(_currentAnimation)->setRotationAngle3(angle);
+            }
+        }
     }
 }
 
 int LEDManager::getRotation(String panel) const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, -1);
     if(panel.equalsIgnoreCase("panel1")){
         return rotationAngle1;
     }
@@ -675,6 +816,7 @@ int LEDManager::getRotation(String panel) const {
 
 void LEDManager::setUpdateSpeed(unsigned long speed){
     if(speed>=10 && speed<=1500){
+        LEDMANAGER_LOCK_OR_RETURN(1000);
         ledUpdateInterval=speed;
         Serial.printf("LED update speed set to %lu ms\n", speed);
         if(_currentAnimationIndex==0 && _currentAnimation){
@@ -698,19 +840,32 @@ void LEDManager::setUpdateSpeed(unsigned long speed){
             Serial.printf("RainbowWave effective speed: %.0fms, multiplier: %.2f\n", 
                 speedValue, speedMultiplier);
         }
+        else if(_currentAnimationIndex==3 && _currentAnimation){
+            auto* f = static_cast<FireworkAnimation*>(_currentAnimation);
+            f->setUpdateInterval(speed);
+        }
+        else if(_currentAnimationIndex==4 && _currentAnimation){
+            auto* g = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+            uint8_t mapped = map((int)speed, 10, 1500, 0, 255);
+            g->setSpeed(mapped);
+        }
     }
 }
 unsigned long LEDManager::getUpdateSpeed() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, ledUpdateInterval);
     return ledUpdateInterval;
 }
 
 int LEDManager::getAnimation() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, _currentAnimationIndex);
     return _currentAnimationIndex;
 }
 size_t LEDManager::getAnimationCount() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, 0);
     return _animationNames.size();
 }
 String LEDManager::getAnimationName(int animIndex) const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, String("Unknown"));
     if (animIndex>=0 && animIndex<(int)_animationNames.size()){
         return _animationNames[animIndex];
     }

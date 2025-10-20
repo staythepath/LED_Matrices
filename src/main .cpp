@@ -1,6 +1,8 @@
 // main.cpp
 #include <WiFi.h>
 #include <FastLED.h>
+#include <FS.h>
+#include <SPIFFS.h>
 // #include <LiquidCrystal.h> // removed if no longer needed
 #include <ArduinoOTA.h>
 #include <time.h>
@@ -36,6 +38,72 @@ static bool inMenu = false;                   // <-- NEW
 static unsigned long lastActivity = 0;        // <-- NEW
 static const unsigned long MENU_TIMEOUT_MS = 30000; // 30s <-- NEW
 
+// --- Network config ---
+static bool g_useStaticIP = false;
+static IPAddress g_staticIP(192,168,2,38);
+static IPAddress g_gateway(192,168,2,1);
+static IPAddress g_subnet(255,255,255,0);
+static IPAddress g_dns(8,8,8,8);
+
+static bool parseIP(const String& s, IPAddress& out){
+    int a,b,c,d; char dot;
+    if(sscanf(s.c_str(), "%d%c%d%c%d%c%d", &a,&dot,&b,&dot,&c,&dot,&d)==7){
+        if(a>=0&&a<=255&&b>=0&&b<=255&&c>=0&&c<=255&&d>=0&&d<=255){
+            out = IPAddress((uint8_t)a,(uint8_t)b,(uint8_t)c,(uint8_t)d);
+            return true;
+        }
+    }
+    return false;
+}
+
+static void loadNetworkConfig(){
+    if(!SPIFFS.begin(true)){
+        Serial.println("SPIFFS mount failed, using defaults");
+        return;
+    }
+    if(!SPIFFS.exists("/net.cfg")){
+        // Default to static per request; create file so it persists
+        File f = SPIFFS.open("/net.cfg","w");
+        if(f){
+            f.println("mode=static");
+            f.println("ip=192.168.2.38");
+            f.println("gw=192.168.2.1");
+            f.println("mask=255.255.255.0");
+            f.println("dns=8.8.8.8");
+            f.close();
+        }
+        g_useStaticIP = true;
+        return;
+    }
+    File f = SPIFFS.open("/net.cfg","r");
+    if(!f){
+        Serial.println("Failed to open /net.cfg, using defaults");
+        return;
+    }
+    String line;
+    while(f.available()){
+        line = f.readStringUntil('\n');
+        line.trim();
+        if(line.length()==0) continue;
+        int eq = line.indexOf('=');
+        if(eq<=0) continue;
+        String key = line.substring(0, eq); key.trim();
+        String val = line.substring(eq+1); val.trim();
+        if(key.equalsIgnoreCase("mode")){
+            g_useStaticIP = val.equalsIgnoreCase("static");
+        } else if(key.equalsIgnoreCase("ip")){
+            parseIP(val, g_staticIP);
+        } else if(key.equalsIgnoreCase("gw")){
+            parseIP(val, g_gateway);
+        } else if(key.equalsIgnoreCase("mask")){
+            parseIP(val, g_subnet);
+        } else if(key.equalsIgnoreCase("dns")){
+            parseIP(val, g_dns);
+        }
+    }
+    f.close();
+}
+
 void setup() {
     Serial.begin(115200);
     delay(1000);
@@ -54,6 +122,9 @@ void setup() {
     setCpuFrequencyMhz(240);
     systemInfo("CPU frequency set to 240MHz");
     
+    // Load network config (creates /net.cfg defaulting to static IP if missing)
+    loadNetworkConfig();
+
     // Force panel count to 2 at startup
     ledManager.setPanelCount(2);
     systemInfo("Panel count forced to 2 at startup");
@@ -66,6 +137,13 @@ void setup() {
     // Start WiFi with retries
     systemInfo("Connecting to WiFi: " + String(ssid));
     Serial.printf("Connecting to WiFi %s", ssid);
+    if(g_useStaticIP){
+        if(WiFi.config(g_staticIP, g_gateway, g_subnet, g_dns)){
+            Serial.printf("Using static IP %s\n", g_staticIP.toString().c_str());
+        } else {
+            Serial.println("WiFi.config failed, falling back to DHCP");
+        }
+    }
     WiFi.begin(ssid, password);
     
     int wifiRetries = 0;

@@ -14,6 +14,7 @@
 #include "LEDManager.h"   // So we can call LEDManager methods
 #include "esp_task_wdt.h" // Include ESP32 watchdog timer control
 #include "LogManager.h"   // Include LogManager for system logs
+#include <ESPmDNS.h>       // mDNS for hostname resolution
 
 // Format SPIFFS if mount fails
 #define FORMAT_SPIFFS_IF_FAILED true
@@ -23,57 +24,19 @@
 // then declare it as extern so we can use it here
 extern LEDManager ledManager;
 
-// Create a global mutex for thread-safe access to LEDManager
-static SemaphoreHandle_t ledManagerMutex = NULL;
+static bool acquireLEDManager(uint32_t timeout = 1000) {
+    return ledManager.beginExclusiveAccess(timeout);
+}
+
+static void releaseLEDManager() {
+    ledManager.endExclusiveAccess();
+}
 
 // Constructor
 WebServerManager::WebServerManager(int port)
     : _server(port) {
-    // Create mutex for thread-safe access to LEDManager
-    ledManagerMutex = xSemaphoreCreateMutex();
-    
     // Subscribe current thread to TWDT
     esp_task_wdt_add(NULL);
-}
-
-// Helper function to safely access LEDManager with improved timeout and retry logic
-static bool acquireLEDManager(uint32_t timeout = 1000) { // Increased default timeout to 1000ms
-    if (ledManagerMutex == NULL) return true; // No mutex, just proceed
-    
-    // Reset watchdog timer
-    esp_task_wdt_reset();
-    
-    // Try to acquire mutex with timeout
-    if (xSemaphoreTake(ledManagerMutex, pdMS_TO_TICKS(timeout)) == pdTRUE) {
-        return true;
-    }
-    
-    // If we reach here, initial acquisition failed - try one more time after yielding
-    Serial.println("Warning: First mutex acquisition failed, retrying after yield");
-    vTaskDelay(pdMS_TO_TICKS(50)); // Short delay to let other tasks run
-    
-    // Reset watchdog again before second attempt
-    esp_task_wdt_reset();
-    
-    bool acquired = xSemaphoreTake(ledManagerMutex, pdMS_TO_TICKS(timeout)) == pdTRUE;
-    if (!acquired) {
-        Serial.println("Critical: Failed to acquire mutex after retry - possible deadlock");
-        // Force release the mutex in extreme cases (might cause other issues but prevents permanent lock)
-        xSemaphoreGive(ledManagerMutex);
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
-    return acquired;
-}
-
-static void releaseLEDManager() {
-    if (ledManagerMutex != NULL) {
-        xSemaphoreGive(ledManagerMutex);
-        // Add small delay to prevent immediate reacquisition
-        vTaskDelay(pdMS_TO_TICKS(5)); 
-        
-        // Reset watchdog after releasing mutex
-        esp_task_wdt_reset();
-    }
 }
 
 // Initialize SPIFFS with better error handling
@@ -113,6 +76,17 @@ void WebServerManager::begin() {
     esp_task_wdt_reset();
     
     Serial.println("Starting Web Server...");
+
+    // Initialize mDNS so the device is reachable via esp32-led.local
+    // Use a simple, consistent hostname; adjust if you want per-device uniqueness
+    const char* mdnsHostname = "esp32-led";
+    if (!MDNS.begin(mdnsHostname)) {
+        Serial.println("mDNS start failed");
+    } else {
+        MDNS.addService("http", "tcp", 80);
+        MDNS.addService("telnet", "tcp", 23);
+        Serial.printf("mDNS started: http://%s.local\n", mdnsHostname);
+    }
 
     /****************************************************
      * Serve SPIFFS-based files
@@ -207,21 +181,15 @@ void WebServerManager::begin() {
      * List Animations
      ****************************************************/
     _server.on("/api/listAnimations", HTTP_GET, [](AsyncWebServerRequest *request){
-        if (!acquireLEDManager(500)) {
-            request->send(503, "text/plain", "Server busy, try again later");
-            return;
-        }
-        
+        size_t count = ledManager.getAnimationCount();
         String json = "{\"animations\":[";
-        for(size_t i=0; i< ledManager.getAnimationCount(); i++){
+        for(size_t i = 0; i < count; i++){
             json += "\"" + ledManager.getAnimationName(i) + "\"";
-            if(i < ledManager.getAnimationCount()-1){
+            if (i + 1 < count) {
                 json += ",";
             }
         }
         json += "],\"current\":" + String(ledManager.getAnimation()) + "}";
-        
-        releaseLEDManager();
         request->send(200, "application/json", json);
     });
 
@@ -233,19 +201,13 @@ void WebServerManager::begin() {
         // Reset watchdog timer at start of request
         esp_task_wdt_reset();
         
-        if (!acquireLEDManager(500)) {
-            request->send(503, "text/plain", "Server busy, try again later");
-            return;
-        }
-        
         if(!request->hasParam("val")){
-            releaseLEDManager();
             request->send(400, "text/plain", "Missing 'val' param");
             return;
         }
         int animIndex = request->getParam("val")->value().toInt();
-        if(animIndex < 0 || animIndex >= (int)ledManager.getAnimationCount()){
-            releaseLEDManager();
+        int totalAnimations = (int)ledManager.getAnimationCount();
+        if(animIndex < 0 || animIndex >= totalAnimations){
             request->send(400, "text/plain","Invalid animation index");
             return;
         }
@@ -256,8 +218,6 @@ void WebServerManager::begin() {
         ledManager.setAnimation(animIndex);
         String msg = "Animation " + String(animIndex) + " ("
             + ledManager.getAnimationName(animIndex) + ") selected.";
-        
-        releaseLEDManager();
         
         // Reset watchdog after completing operation
         esp_task_wdt_reset();
@@ -270,14 +230,7 @@ void WebServerManager::begin() {
      * Get Current Animation
      ****************************************************/
     _server.on("/api/getAnimation", HTTP_GET, [](AsyncWebServerRequest *request){
-        if (!acquireLEDManager(500)) {
-            request->send(503, "text/plain", "Server busy, try again later");
-            return;
-        }
-        
         int currentAnim = ledManager.getAnimation();
-        
-        releaseLEDManager();
         request->send(200, "text/plain", String(currentAnim));
     });
 
@@ -724,6 +677,96 @@ void WebServerManager::begin() {
         
         releaseLEDManager();
         request->send(200,"text/plain", String(speed));
+    });
+
+    /****************************************************
+     * Network settings
+     ****************************************************/
+    // Set network mode: dhcp or static
+    _server.on("/api/setNetworkMode", HTTP_GET, [](AsyncWebServerRequest *request){
+        if(!request->hasParam("val")){
+            request->send(400, "text/plain", "Missing val param (dhcp|static)");
+            return;
+        }
+        String mode = request->getParam("val")->value();
+        if(!SPIFFS.begin(true)){
+            request->send(500,"text/plain","SPIFFS mount failed");
+            return;
+        }
+        // Read existing IP entries to preserve them
+        String ip="192.168.2.38", gw="192.168.2.1", mask="255.255.255.0", dns="8.8.8.8";
+        if(SPIFFS.exists("/net.cfg")){
+            File fr = SPIFFS.open("/net.cfg","r");
+            while(fr && fr.available()){
+                String line = fr.readStringUntil('\n'); line.trim();
+                int eq = line.indexOf('='); if(eq>0){
+                    String k=line.substring(0,eq); String v=line.substring(eq+1); k.trim(); v.trim();
+                    if(k.equalsIgnoreCase("ip")) ip=v;
+                    else if(k.equalsIgnoreCase("gw")) gw=v;
+                    else if(k.equalsIgnoreCase("mask")) mask=v;
+                    else if(k.equalsIgnoreCase("dns")) dns=v;
+                }
+            }
+            if(fr) fr.close();
+        }
+        File f = SPIFFS.open("/net.cfg","w");
+        if(!f){ request->send(500,"text/plain","Failed to write net.cfg"); return; }
+        f.printf("mode=%s\n", mode.equalsIgnoreCase("static")?"static":"dhcp");
+        f.printf("ip=%s\n", ip.c_str());
+        f.printf("gw=%s\n", gw.c_str());
+        f.printf("mask=%s\n", mask.c_str());
+        f.printf("dns=%s\n", dns.c_str());
+        f.close();
+        request->send(200, "text/plain", "Network mode updated. Reboot to apply.");
+    });
+
+    // Set static IP parameters
+    _server.on("/api/setStaticIP", HTTP_GET, [](AsyncWebServerRequest *request){
+        auto getp=[&](const char* k)->String{ return request->hasParam(k)? request->getParam(k)->value():String(""); };
+        String ip=getp("ip"), gw=getp("gw"), mask=getp("mask"), dns=getp("dns");
+        if(ip==""||gw==""||mask==""||dns==""){
+            request->send(400, "text/plain", "Missing params ip,gw,mask,dns");
+            return;
+        }
+        if(!SPIFFS.begin(true)){
+            request->send(500,"text/plain","SPIFFS mount failed");
+            return;
+        }
+        File f = SPIFFS.open("/net.cfg","w");
+        if(!f){ request->send(500,"text/plain","Failed to write net.cfg"); return; }
+        f.println("mode=static");
+        f.printf("ip=%s\n", ip.c_str());
+        f.printf("gw=%s\n", gw.c_str());
+        f.printf("mask=%s\n", mask.c_str());
+        f.printf("dns=%s\n", dns.c_str());
+        f.close();
+        request->send(200, "text/plain", "Static IP saved. Reboot to apply.");
+    });
+
+    // Get network config
+    _server.on("/api/getNetwork", HTTP_GET, [](AsyncWebServerRequest *request){
+        if(!SPIFFS.begin(true)){
+            request->send(500,"text/plain","SPIFFS mount failed");
+            return;
+        }
+        String mode="dhcp", ip="", gw="", mask="", dns="";
+        if(SPIFFS.exists("/net.cfg")){
+            File fr = SPIFFS.open("/net.cfg","r");
+            while(fr && fr.available()){
+                String line = fr.readStringUntil('\n'); line.trim();
+                int eq = line.indexOf('='); if(eq>0){
+                    String k=line.substring(0,eq); String v=line.substring(eq+1); k.trim(); v.trim();
+                    if(k.equalsIgnoreCase("mode")) mode=v;
+                    else if(k.equalsIgnoreCase("ip")) ip=v;
+                    else if(k.equalsIgnoreCase("gw")) gw=v;
+                    else if(k.equalsIgnoreCase("mask")) mask=v;
+                    else if(k.equalsIgnoreCase("dns")) dns=v;
+                }
+            }
+            if(fr) fr.close();
+        }
+        String json = String("{\"mode\":\"")+mode+"\",\"ip\":\""+ip+"\",\"gw\":\""+gw+"\",\"mask\":\""+mask+"\",\"dns\":\""+dns+"\"}";
+        request->send(200, "application/json", json);
     });
 
     // 21) setPanelCount => param "val" (1..8)
