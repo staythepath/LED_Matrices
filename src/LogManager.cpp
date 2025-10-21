@@ -15,6 +15,9 @@ LogManager::LogManager() {
 void LogManager::log(LogLevel level, const String& message) {
     // Take mutex
     if (logMutex != NULL && xSemaphoreTake(logMutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+        String formattedLine;
+        bool shouldNotify = false;
+
         // Trim logs if exceeding maximum
         if (logs.size() >= MAX_LOG_ENTRIES) {
             logs.erase(logs.begin());
@@ -28,13 +31,17 @@ void LogManager::log(LogLevel level, const String& message) {
         
         // Add to logs
         logs.push_back(entry);
-        
-        // Always print to Serial for debugging
-        Serial.print(millis());
-        Serial.print(" [");
-        Serial.print(levelToString(level));
-        Serial.print("] ");
-        Serial.println(message);
+
+        formattedLine.reserve(message.length() + 24);
+        formattedLine += "[";
+        formattedLine += String(entry.timestamp);
+        formattedLine += "] [";
+        formattedLine += levelToString(level);
+        formattedLine += "] ";
+        formattedLine += message;
+
+        Serial.println(formattedLine);
+        shouldNotify = true;
         
         // Release mutex
         xSemaphoreGive(logMutex);
@@ -42,6 +49,10 @@ void LogManager::log(LogLevel level, const String& message) {
         // Save to file at INFO level and above
         if (level >= INFO && level % 10 == 0) { // Save every 10th INFO or above message to reduce writes
             saveLogsToFile();
+        }
+
+        if (shouldNotify && _listener) {
+            _listener(formattedLine);
         }
     } else {
         // Mutex timeout - just print to Serial
@@ -269,6 +280,10 @@ String LogManager::levelToString(LogLevel level) {
         case CRITICAL: return "CRITICAL";
         default: return "UNKNOWN";
     }
+}
+
+void LogManager::setListener(std::function<void(const String&)> listener) {
+    _listener = listener;
 }
 
 // Global log functions

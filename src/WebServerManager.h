@@ -17,10 +17,12 @@ public:
 
 private:
     AsyncWebServer _server; // Async WebServer instance
+    AsyncWebSocket _logSocket{"/ws"};
 
     bool initSPIFFS();      // Initialize SPIFFS with error handling
-    void setupRoutes();     // Function to define routes
     String createPageTemplate(const String& title, const String& content); // HTML template generator
+    void setupWebSocket();
+    void broadcastLogLine(const String& line);
 };
 
 #endif // WEBSERVERMANAGER_H

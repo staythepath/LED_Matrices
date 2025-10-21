@@ -15,6 +15,9 @@ RainbowWaveAnimation::RainbowWaveAnimation(uint16_t numLeds, uint8_t brightness,
     , _lastUpdate(0)
     , _phase(0)
     , _speedMultiplier(1.0f)  // Default speed
+    , _saturation(255)
+    , _valueLevel(255)
+    , _hueStride(4)
     , _panelOrder(1)
     , _rotationAngle1(90)
     , _rotationAngle2(90)
@@ -46,8 +49,8 @@ void RainbowWaveAnimation::fillRainbowWave() {
     for (int y = 0; y < _height; y++) {
         for (int x = 0; x < _width; x++) {
             // compute hue based on x + _phase
-            uint8_t hue = (x * 4 + _phase) & 255; 
-            CHSV colorHSV(hue, 255, 255);
+            uint8_t hue = (x * _hueStride + _phase) & 255;
+            CHSV colorHSV(hue, _saturation, _valueLevel);
             CRGB colorRGB;
             hsv2rgb_rainbow(colorHSV, colorRGB);
 
@@ -76,6 +79,22 @@ void RainbowWaveAnimation::setSpeedMultiplier(float speedMultiplier) {
     if (speedMultiplier < 0.1f) speedMultiplier = 0.1f;
     if (speedMultiplier > 5.0f) speedMultiplier = 5.0f;
     _speedMultiplier = speedMultiplier;
+}
+
+void RainbowWaveAnimation::setSaturation(uint8_t saturation) {
+    _saturation = saturation;
+}
+
+void RainbowWaveAnimation::setHueStride(uint8_t stride) {
+    if (stride < 1) stride = 1;
+    if (stride > 16) stride = 16;
+    _hueStride = stride;
+}
+
+void RainbowWaveAnimation::setValueLevel(uint8_t value) {
+    if (value < 30) value = 30;
+    if (value > 255) value = 255;
+    _valueLevel = value;
 }
 
 void RainbowWaveAnimation::setPanelOrder(int order)         { _panelOrder     = order; }

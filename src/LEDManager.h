@@ -4,6 +4,7 @@
 #include <FastLED.h>
 #include <vector>
 #include <Arduino.h>
+#include <Preferences.h>
 
 // Up to 8 panels of 16×16
 static const int MAX_LEDS = 16 * 16 * 8;
@@ -83,6 +84,7 @@ private:
     void cleanupAnimation();
     void createPalettes();
     void configureCurrentAnimation();
+    void showBootPattern();
 
     // The bigger arrow + digit methods
     void drawUpArrow(int baseIndex);
@@ -116,6 +118,8 @@ private:
     unsigned long lastLedUpdate;
     int _speed;
     int _columnSkip; // For Game of Life animation
+    Preferences _prefs;
+    bool _prefsReady;
 };
 
 #endif // LEDMANAGER_H

@@ -10,13 +10,14 @@ extern CRGB leds[];
 BlinkAnimation::BlinkAnimation(uint16_t numLeds, uint8_t brightness, int panelCount)
   : BaseAnimation(numLeds, brightness) // call the base class constructor
   , _panelCount(panelCount)
-  , _intervalMs(500)
+  , _intervalMs(400)
   , _lastToggle(0)
   , _isOn(false)
+  , _onDurationMs(300)
+  , _offDurationMs(300)
   , _palette(nullptr)
   , _paletteIndex(0)
-{
-}
+{}
 
 void BlinkAnimation::begin() {
     // Turn off to start
@@ -28,7 +29,8 @@ void BlinkAnimation::begin() {
 
 void BlinkAnimation::update() {
     unsigned long now = millis();
-    if ((now - _lastToggle) >= _intervalMs) {
+    const uint16_t period = _isOn ? _onDurationMs : _offDurationMs;
+    if ((now - _lastToggle) >= period) {
         _lastToggle = now;
         // Toggle state
         _isOn = !_isOn;
@@ -59,6 +61,20 @@ void BlinkAnimation::setBrightness(uint8_t b) {
 
 void BlinkAnimation::setInterval(unsigned long intervalMs) {
     _intervalMs = intervalMs;
+    _onDurationMs = static_cast<uint16_t>(intervalMs);
+    _offDurationMs = static_cast<uint16_t>(intervalMs);
+}
+
+void BlinkAnimation::setOnDuration(uint16_t ms) {
+    if (ms < 40) ms = 40;
+    if (ms > 2000) ms = 2000;
+    _onDurationMs = ms;
+}
+
+void BlinkAnimation::setOffDuration(uint16_t ms) {
+    if (ms < 40) ms = 40;
+    if (ms > 2000) ms = 2000;
+    _offDurationMs = ms;
 }
 
 void BlinkAnimation::setPalette(const std::vector<CRGB>* palette) {

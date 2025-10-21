@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <FastLED.h>
 #include <typeinfo>
+#include <algorithm>
 #include "LogManager.h"
 
 // Include Animation header files
@@ -37,7 +38,8 @@ LEDManager::LEDManager()
     , lastLedUpdate(0)
     , _isInitializing(true)
     , _speed(30)
-    , _columnSkip(1) // Default to showing every column
+    , _columnSkip(6) // Midpoint sweep speed by default
+    , _prefsReady(false)
 {
     createPalettes();
     _animationNames.push_back("Traffic");     // index=0
@@ -48,8 +50,54 @@ LEDManager::LEDManager()
 }
 
 void LEDManager::begin() {
+    if (!_prefsReady) {
+        _prefsReady = _prefs.begin("ledmgr", false);
+        if (_prefsReady) {
+            uint8_t savedPanels = _prefs.getUChar("panelCount", static_cast<uint8_t>(_panelCount));
+            if (savedPanels < 1) {
+                savedPanels = 1;
+            } else if (savedPanels > 8) {
+                savedPanels = 8;
+            }
+            _panelCount = savedPanels;
+            _numLeds = _panelCount * 16 * 16;
+        }
+    }
+
     reinitFastLED();
+    showBootPattern();
     showLoadingAnimation();
+}
+
+void LEDManager::showBootPattern() {
+    FastLED.clear(true);
+
+    static const CRGB bootColors[] = {
+        CRGB::Red,
+        CRGB::Green,
+        CRGB::Blue,
+        CRGB::Yellow
+    };
+
+    const int ledsPerPanel = 16 * 16;
+    for (int panel = 0; panel < _panelCount; ++panel) {
+        const CRGB color = bootColors[panel % (sizeof(bootColors) / sizeof(bootColors[0]))];
+        const int startIndex = panel * ledsPerPanel;
+        const int endIndex = std::min(startIndex + ledsPerPanel, static_cast<int>(_numLeds));
+        for (int i = startIndex; i < endIndex; ++i) {
+            leds[i] = color;
+        }
+    }
+    FastLED.show();
+
+    for (int step = 0; step < 3; ++step) {
+        fadeToBlackBy(leds, _numLeds, 90);
+        FastLED.show();
+        delay(120);
+    }
+
+    FastLED.clear(true);
+    FastLED.show();
 }
 
 void LEDManager::showLoadingAnimation() {
@@ -189,6 +237,10 @@ void LEDManager::configureCurrentAnimation() {
         BlinkAnimation* anim = static_cast<BlinkAnimation*>(_currentAnimation);
         anim->setInterval(ledUpdateInterval);
         anim->setPalette(&ALL_PALETTES[currentPalette]);
+        uint16_t onMs = map(fadeAmount, 0, 200, 60, 1200);
+        uint16_t offMs = map(tailLength, 0, 20, 60, 1200);
+        anim->setOnDuration(onMs);
+        anim->setOffDuration(offMs);
     }
     else if (_currentAnimationIndex == 2) { // RainbowWave
         RainbowWaveAnimation* anim = static_cast<RainbowWaveAnimation*>(_currentAnimation);
@@ -200,12 +252,17 @@ void LEDManager::configureCurrentAnimation() {
         // Set animation parameters
         anim->setUpdateInterval(8);
         anim->setSpeedMultiplier(speedMultiplier);
-        
+
         // Set panel configuration
         anim->setPanelOrder(panelOrder);
         anim->setRotationAngle1(rotationAngle1);
         anim->setRotationAngle2(rotationAngle2);
         anim->setRotationAngle3(rotationAngle3);
+        anim->setSaturation(fadeAmount);
+        long strideRaw = map(tailLength, 0, 20, 1, 12);
+        if (strideRaw < 1) strideRaw = 1;
+        if (strideRaw > 16) strideRaw = 16;
+        anim->setHueStride(static_cast<uint8_t>(strideRaw));
     }
     else if (_currentAnimationIndex == 3) { // Firework
         FireworkAnimation* anim = static_cast<FireworkAnimation*>(_currentAnimation);
@@ -214,10 +271,18 @@ void LEDManager::configureCurrentAnimation() {
         anim->setRotationAngle3(rotationAngle3);
         anim->setPanelOrder(panelOrder);
         anim->setUpdateInterval(15);
-        anim->setMaxFireworks(10);
-        anim->setParticleCount(40);
-        anim->setGravity(0.15f);
-        anim->setLaunchProbability(0.15f);
+        float gravity = 0.05f + (static_cast<float>(fadeAmount) / 255.0f) * 0.35f;
+        anim->setGravity(gravity);
+        long particleRaw = map(tailLength, 0, 20, 20, 200);
+        if (particleRaw < 10) particleRaw = 10;
+        if (particleRaw > 300) particleRaw = 300;
+        anim->setParticleCount(static_cast<int>(particleRaw));
+        int maxFireworks = maxFlakes / 20;
+        if (maxFireworks < 1) maxFireworks = 1;
+        if (maxFireworks > 30) maxFireworks = 30;
+        anim->setMaxFireworks(maxFireworks);
+        float probability = constrain(spawnRate, 0.01f, 1.0f);
+        anim->setLaunchProbability(probability);
     }
     else if (_currentAnimationIndex == 4) { // GameOfLife
         GameOfLifeAnimation* anim = static_cast<GameOfLifeAnimation*>(_currentAnimation);
@@ -230,6 +295,8 @@ void LEDManager::configureCurrentAnimation() {
         anim->setAllPalettes(&ALL_PALETTES);
         anim->setCurrentPalette(currentPalette);
         anim->setWipeBarBrightness(fadeAmount);
+        anim->setColumnSkip(_columnSkip);
+        anim->setFadeStepControl(static_cast<uint8_t>(tailLength));
     }
 }
 
@@ -337,6 +404,9 @@ void LEDManager::setPanelCount(int count) {
 
     _panelCount = count;
     _numLeds = _panelCount * 16 * 16;
+    if (_prefsReady) {
+        _prefs.putUChar("panelCount", static_cast<uint8_t>(_panelCount));
+    }
     Serial.printf("Panel count set to %d, _numLeds=%d\n", _panelCount, _numLeds);
     systemInfo("Panel count set to " + String(_panelCount) + ", total LEDs=" + String(_numLeds));
 
@@ -627,10 +697,19 @@ const std::vector<CRGB>& LEDManager::getCurrentPaletteColors() const {
 }
 
 void LEDManager::setSpawnRate(float r){
-    spawnRate=r;
-    if(_currentAnimationIndex==0 && _currentAnimation){
+    if (r < 0.0f) r = 0.0f;
+    if (r > 1.0f) r = 1.0f;
+    spawnRate = r;
+    if (_currentAnimationIndex == 0 && _currentAnimation){
         TrafficAnimation* t = static_cast<TrafficAnimation*>(_currentAnimation);
         t->setSpawnRate(r);
+    }
+    else if (_currentAnimationIndex == 3 && _currentAnimation) {
+        FireworkAnimation* f = static_cast<FireworkAnimation*>(_currentAnimation);
+        float probability = r;
+        if (probability < 0.01f) probability = 0.01f;
+        if (probability > 1.0f) probability = 1.0f;
+        f->setLaunchProbability(probability);
     }
 }
 float LEDManager::getSpawnRate() const {
@@ -643,6 +722,13 @@ void LEDManager::setMaxFlakes(int m){
         TrafficAnimation* t = static_cast<TrafficAnimation*>(_currentAnimation);
         t->setMaxCars(m);
     }
+    else if (_currentAnimationIndex==3 && _currentAnimation) {
+        FireworkAnimation* f = static_cast<FireworkAnimation*>(_currentAnimation);
+        int maxFireworks = m / 20;
+        if (maxFireworks < 1) maxFireworks = 1;
+        if (maxFireworks > 30) maxFireworks = 30;
+        f->setMaxFireworks(maxFireworks);
+    }
 }
 int LEDManager::getMaxFlakes() const {
     return maxFlakes;
@@ -653,6 +739,29 @@ void LEDManager::setTailLength(int l){
     if(_currentAnimationIndex==0 && _currentAnimation){
         TrafficAnimation* t = static_cast<TrafficAnimation*>(_currentAnimation);
         t->setTailLength(l);
+    }
+    else if (_currentAnimationIndex==1 && _currentAnimation) {
+        BlinkAnimation* b = static_cast<BlinkAnimation*>(_currentAnimation);
+        uint16_t offMs = map(l, 0, 20, 60, 1200);
+        b->setOffDuration(offMs);
+    }
+    else if (_currentAnimationIndex==2 && _currentAnimation) {
+        RainbowWaveAnimation* r = static_cast<RainbowWaveAnimation*>(_currentAnimation);
+        long strideRaw = map(l, 0, 20, 1, 12);
+        if (strideRaw < 1) strideRaw = 1;
+        if (strideRaw > 16) strideRaw = 16;
+        r->setHueStride(static_cast<uint8_t>(strideRaw));
+    }
+    else if (_currentAnimationIndex==3 && _currentAnimation) {
+        FireworkAnimation* f = static_cast<FireworkAnimation*>(_currentAnimation);
+        long particleRaw = map(l, 0, 20, 20, 200);
+        if (particleRaw < 10) particleRaw = 10;
+        if (particleRaw > 300) particleRaw = 300;
+        f->setParticleCount(static_cast<int>(particleRaw));
+    }
+    else if (_currentAnimationIndex==4 && _currentAnimation) {
+        GameOfLifeAnimation* g = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        g->setFadeStepControl(static_cast<uint8_t>(l));
     }
 }
 int LEDManager::getTailLength() const {
@@ -665,8 +774,21 @@ void LEDManager::setFadeAmount(uint8_t a){
         TrafficAnimation* t = static_cast<TrafficAnimation*>(_currentAnimation);
         t->setFadeAmount(a);
     }
+    else if (_currentAnimationIndex==1 && _currentAnimation) {
+        BlinkAnimation* b = static_cast<BlinkAnimation*>(_currentAnimation);
+        uint16_t onMs = map(a, 0, 200, 60, 1200);
+        b->setOnDuration(onMs);
+    }
+    else if (_currentAnimationIndex==2 && _currentAnimation) {
+        RainbowWaveAnimation* r = static_cast<RainbowWaveAnimation*>(_currentAnimation);
+        r->setSaturation(a);
+    }
+    else if (_currentAnimationIndex==3 && _currentAnimation) {
+        FireworkAnimation* f = static_cast<FireworkAnimation*>(_currentAnimation);
+        float gravity = 0.05f + (static_cast<float>(a) / 255.0f) * 0.35f;
+        f->setGravity(gravity);
+    }
     else if(_currentAnimationIndex==4 && _currentAnimation){
-        // Also update the wipe bar brightness for Game of Life animation
         GameOfLifeAnimation* g = static_cast<GameOfLifeAnimation*>(_currentAnimation);
         g->setWipeBarBrightness(a);
         Serial.printf("Game of Life wipe bar brightness set to %d\n", a);
@@ -792,10 +914,10 @@ unsigned long LEDManager::getUpdateSpeed() const {
 // Game of Life column skip getter/setter
 void LEDManager::setColumnSkip(int skip) {
     if (skip < 1) skip = 1;
-    if (skip > 5) skip = 5;
+    if (skip > 10) skip = 10;
     
     _columnSkip = skip;
-    LogManager::getInstance().debug("Game of Life column skip set to " + String(_columnSkip));
+    LogManager::getInstance().debug("Game of Life sweep speed set to " + String(_columnSkip));
     
     // If Game of Life is the current animation, update its column skip value
     if (_currentAnimation && _currentAnimationIndex == 4) { // 4 is GameOfLife

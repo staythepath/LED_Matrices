@@ -28,6 +28,8 @@ public:
 
     // Set how fast we blink
     void setInterval(unsigned long intervalMs);
+    void setOnDuration(uint16_t ms);
+    void setOffDuration(uint16_t ms);
 
     // If we want to use a palette of colors
     void setPalette(const std::vector<CRGB>* palette);
@@ -36,9 +38,11 @@ private:
     // For consistency, we store the panelCount even though we don't use it
     int _panelCount;
 
-    unsigned long _intervalMs;  
+    unsigned long _intervalMs;
     unsigned long _lastToggle;
     bool          _isOn;
+    uint16_t      _onDurationMs;
+    uint16_t      _offDurationMs;
 
     // We'll cycle through a palette
     const std::vector<CRGB>* _palette;

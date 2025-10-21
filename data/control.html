@@ -10,191 +10,6 @@
     <meta http-equiv="Expires" content="0">
     <!-- External CSS -->
     <link rel="stylesheet" href="/css/styles.css">
-    <style>
-      /* Additional control-panel specific styles */
-      .slider-container {
-        position: relative;
-        display: flex;
-        align-items: center;
-        margin-bottom: 15px;
-        padding-bottom: 15px;
-      }
-      
-      .slider-container label {
-        width: 120px;
-        font-weight: bold;
-        color: var(--secondary, #64748b);
-      }
-      
-      .slider-container input[type="range"] {
-        margin: 0 15px;
-        flex: 1;
-        height: 8px;
-        border-radius: 4px;
-        background: linear-gradient(to right, rgba(56, 189, 248, 0.2), rgba(56, 189, 248, 0.1));
-        position: relative;
-        border: 1px solid rgba(255,255,255,0.2);
-      }
-      
-      /* Slider thumb styling */
-      .slider-container input[type="range"]::-webkit-slider-thumb {
-        -webkit-appearance: none;
-        width: 16px;
-        height: 16px;
-        border-radius: 50%;
-        background: var(--primary, #38bdf8);
-        cursor: pointer;
-        border: 2px solid rgba(255, 255, 255, 0.8);
-        box-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
-      }
-      
-      /* Add min-max markers for sliders */
-      .slider-container {
-        position: relative;
-      }
-      
-      .slider-container::before,
-      .slider-container::after {
-        content: '';
-        position: absolute;
-        width: 2px;
-        height: 8px;
-        background-color: rgba(255, 255, 255, 0.7);
-        bottom: 15px;
-        z-index: 1;
-      }
-      
-      .slider-container::before {
-        left: 135px;
-      }
-      
-      .slider-container::after {
-        right: 80px;
-      }
-      
-      /* Min/max value labels */
-      .slider-min,
-      .slider-max {
-        position: absolute;
-        font-size: 9px;
-        color: rgba(255, 255, 255, 0.6);
-        bottom: 1px;
-      }
-      
-      .slider-min {
-        left: 135px;
-        transform: translateX(-50%);
-      }
-      
-      .slider-max {
-        right: 80px;
-        transform: translateX(50%);
-      }
-      
-      .slider-container input[type="number"] {
-        width: 60px;
-        background: rgba(255,255,255,0.05);
-        border: 1px solid rgba(255,255,255,0.1);
-        color: var(--on-surface, #f8fafc);
-        padding: 5px;
-        border-radius: 4px;
-      }
-      
-      .dropdown-container {
-        margin: 15px 0;
-        display: flex;
-        align-items: center;
-      }
-      
-      .dropdown-container label {
-        width: 120px;
-        font-weight: bold;
-        color: var(--secondary, #64748b);
-      }
-      
-      select {
-        background: rgba(255,255,255,0.05);
-        border: 1px solid rgba(255,255,255,0.1);
-        color: var(--on-surface, #f8fafc);
-        padding: 8px;
-        border-radius: 4px;
-      }
-      
-      button {
-        background: var(--primary, #38bdf8);
-        color: #000;
-        border: none;
-        padding: 8px 16px;
-        border-radius: 4px;
-        cursor: pointer;
-        margin-left: 10px;
-        transition: all 0.2s;
-      }
-      
-      button:hover {
-        background: rgba(56, 189, 248, 0.8);
-        transform: translateY(-1px);
-      }
-      
-      .section-title {
-        margin-top: 0;
-        color: var(--primary, #38bdf8);
-      }
-      
-      /* Log container specific to control panel */
-      .log-container {
-        height: 300px;
-        resize: vertical;
-        overflow-y: auto;
-        background: #0a0a0a;
-        border: 1px solid #333;
-        border-radius: 8px;
-        padding: 10px;
-        font-family: monospace;
-        margin-top: 10px;
-        color: #eee;
-      }
-      
-      .two-columns {
-        display: flex;
-        justify-content: space-between;
-      }
-      
-      .grid-layout {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 10px;
-      }
-      
-      .settings-card {
-        padding: 20px;
-        border: 1px solid #ddd;
-        border-radius: 10px;
-        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-      }
-      
-      .log-section {
-        padding: 20px;
-        border: 1px solid #ddd;
-        border-radius: 10px;
-        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-      }
-      
-      .panel-rotation-controls {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: space-between;
-      }
-      
-      .rotation-control {
-        margin: 10px;
-      }
-      
-      .control-group {
-        display: flex;
-        align-items: center;
-      }
-    </style>
   </head>
   <body>
     <nav>
@@ -231,18 +46,19 @@
             <div class="slider-container" id="speedContainer">
               <label for="sliderSpeed" id="speedLabel">Speed:</label>
               <input type="range" id="sliderSpeed" min="0" max="100" step="1" value="10">
-              <input type="number" id="numSpeed" min="3" max="1500" step="1" value="10">
+              <input type="number" id="numSpeed" min="0" max="100" step="1" value="10">
               <span class="slider-min">0</span>
               <span class="slider-max">100</span>
             </div>
             
             <!-- Column Skip slider (only for Game of Life) -->
             <div class="slider-container game-of-life-control" id="columnSkipContainer" data-control-type="column-skip" style="display: none;">
-              <label for="sliderColumnSkip"><strong>Column Skip:</strong></label>
-              <input type="range" id="sliderColumnSkip" min="1" max="5" step="1" value="1">
-              <input type="number" id="numColumnSkip" min="1" max="5" step="1" value="1">
+              <label for="sliderColumnSkip"><strong>Sweep Speed:</strong></label>
+              <input type="range" id="sliderColumnSkip" min="1" max="10" step="1" value="6">
+              <input type="number" id="numColumnSkip" min="1" max="10" step="1" value="6">
               <span class="slider-min">1</span>
-              <span class="slider-max">5</span>
+              <span class="slider-max">10</span>
+              <small class="help-text">Higher values move the sweep cursor faster across the panels.</small>
             </div>
             
             <!-- Brightness -->
@@ -278,9 +94,9 @@
             <!-- Spawn Rate -->
             <div class="slider-container">
               <label for="sliderSpawn">Spawn Rate:</label>
-              <input type="range" id="sliderSpawn" min="1" max="100" value="20">
-              <input type="number" id="numSpawn" min="1" max="100" value="20">
-              <span class="slider-min">1</span>
+              <input type="range" id="sliderSpawn" min="0" max="100" value="20">
+              <input type="number" id="numSpawn" min="0" max="100" value="20">
+              <span class="slider-min">0</span>
               <span class="slider-max">100</span>
             </div>
             
@@ -301,11 +117,11 @@
             <!-- Panel Count -->
             <div class="slider-container">
               <label for="sliderPanelCount">Panel Count:</label>
-              <input type="range" id="sliderPanelCount" min="1" max="2" value="2">
-              <input type="number" id="numPanelCount" min="1" max="2" value="2">
+              <input type="range" id="sliderPanelCount" min="1" max="8" value="2">
+              <input type="number" id="numPanelCount" min="1" max="8" value="2">
               <button id="btnSetPanelCount">Apply</button>
               <span class="slider-min">1</span>
-              <span class="slider-max">2</span>
+              <span class="slider-max">8</span>
             </div>
             
             <!-- Panel Order -->

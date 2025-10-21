@@ -2,10 +2,11 @@
 #define LOGMANAGER_H
 
 #include <Arduino.h>
-#include <vector>
-#include <String.h>
 #include <FS.h>
 #include <SPIFFS.h>
+#include <String.h>
+#include <functional>
+#include <vector>
 
 // Maximum log entries to keep in memory (to avoid running out of memory)
 #define MAX_LOG_ENTRIES 1000
@@ -53,6 +54,9 @@ public:
     // Clear logs
     void clearLogs();
 
+    // Register external listener (e.g., websocket broadcaster)
+    void setListener(std::function<void(const String&)> listener);
+
 private:
     // Private constructor (singleton)
     LogManager();
@@ -72,6 +76,7 @@ private:
     
     // Mutex for thread safety
     SemaphoreHandle_t logMutex;
+    std::function<void(const String&)> _listener;
 };
 
 // Global log function for easy access

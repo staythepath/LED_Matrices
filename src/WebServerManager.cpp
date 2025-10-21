@@ -11,8 +11,8 @@
 #include <Update.h>
 #include <FS.h>           
 #include <SPIFFS.h>       // For SPIFFS
+#include <WiFi.h>
 #include "LEDManager.h"   // So we can call LEDManager methods
-#include "esp_task_wdt.h" // Include ESP32 watchdog timer control
 #include "LogManager.h"   // Include LogManager for system logs
 
 // Format SPIFFS if mount fails
@@ -24,56 +24,54 @@
 extern LEDManager ledManager;
 
 // Create a global mutex for thread-safe access to LEDManager
-static SemaphoreHandle_t ledManagerMutex = NULL;
+static SemaphoreHandle_t ledManagerMutex = nullptr;
 
 // Constructor
 WebServerManager::WebServerManager(int port)
     : _server(port) {
-    // Create mutex for thread-safe access to LEDManager
-    ledManagerMutex = xSemaphoreCreateMutex();
-    
-    // Subscribe current thread to TWDT
-    esp_task_wdt_add(NULL);
+    if (ledManagerMutex == nullptr) {
+        ledManagerMutex = xSemaphoreCreateRecursiveMutex();
+    }
 }
 
-// Helper function to safely access LEDManager with improved timeout and retry logic
-static bool acquireLEDManager(uint32_t timeout = 1000) { // Increased default timeout to 1000ms
-    if (ledManagerMutex == NULL) return true; // No mutex, just proceed
-    
-    // Reset watchdog timer
-    esp_task_wdt_reset();
-    
-    // Try to acquire mutex with timeout
-    if (xSemaphoreTake(ledManagerMutex, pdMS_TO_TICKS(timeout)) == pdTRUE) {
+// Helper function to safely access LEDManager
+static bool acquireLEDManager(uint32_t timeout = 250) {
+    if (ledManagerMutex == nullptr) {
         return true;
     }
-    
-    // If we reach here, initial acquisition failed - try one more time after yielding
-    Serial.println("Warning: First mutex acquisition failed, retrying after yield");
-    vTaskDelay(pdMS_TO_TICKS(50)); // Short delay to let other tasks run
-    
-    // Reset watchdog again before second attempt
-    esp_task_wdt_reset();
-    
-    bool acquired = xSemaphoreTake(ledManagerMutex, pdMS_TO_TICKS(timeout)) == pdTRUE;
-    if (!acquired) {
-        Serial.println("Critical: Failed to acquire mutex after retry - possible deadlock");
-        // Force release the mutex in extreme cases (might cause other issues but prevents permanent lock)
-        xSemaphoreGive(ledManagerMutex);
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
-    return acquired;
+    return xSemaphoreTakeRecursive(ledManagerMutex, pdMS_TO_TICKS(timeout)) == pdTRUE;
 }
 
 static void releaseLEDManager() {
-    if (ledManagerMutex != NULL) {
-        xSemaphoreGive(ledManagerMutex);
-        // Add small delay to prevent immediate reacquisition
-        vTaskDelay(pdMS_TO_TICKS(5)); 
-        
-        // Reset watchdog after releasing mutex
-        esp_task_wdt_reset();
+    if (ledManagerMutex != nullptr) {
+        xSemaphoreGiveRecursive(ledManagerMutex);
     }
+}
+
+static String jsonEscape(const String& input) {
+    String escaped;
+    escaped.reserve(input.length() + 4);
+    for (size_t i = 0; i < input.length(); ++i) {
+        const char c = input.charAt(i);
+        switch (c) {
+            case '\"': escaped += "\\\""; break;
+            case '\\': escaped += "\\\\"; break;
+            case '\b': escaped += "\\b"; break;
+            case '\f': escaped += "\\f"; break;
+            case '\n': escaped += "\\n"; break;
+            case '\r': escaped += "\\r"; break;
+            case '\t': escaped += "\\t"; break;
+            default:
+                if (static_cast<uint8_t>(c) < 0x20) {
+                    char buffer[7];
+                    snprintf(buffer, sizeof(buffer), "\\u%04x", c);
+                    escaped += buffer;
+                } else {
+                    escaped += c;
+                }
+        }
+    }
+    return escaped;
 }
 
 // Initialize SPIFFS with better error handling
@@ -109,9 +107,8 @@ void WebServerManager::begin() {
         // Continue anyway, but some features won't work
     }
 
-    // Reset watchdog before setting up routes
-    esp_task_wdt_reset();
-    
+    setupWebSocket();
+
     Serial.println("Starting Web Server...");
 
     /****************************************************
@@ -230,9 +227,6 @@ void WebServerManager::begin() {
      * Set Animations
      ****************************************************/
     _server.on("/api/setAnimation", HTTP_GET, [](AsyncWebServerRequest *request){
-        // Reset watchdog timer at start of request
-        esp_task_wdt_reset();
-        
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
             return;
@@ -250,18 +244,12 @@ void WebServerManager::begin() {
             return;
         }
         
-        // Reset watchdog before potentially long operation
-        esp_task_wdt_reset();
-        
         ledManager.setAnimation(animIndex);
         String msg = "Animation " + String(animIndex) + " ("
             + ledManager.getAnimationName(animIndex) + ") selected.";
         
         releaseLEDManager();
-        
-        // Reset watchdog after completing operation
-        esp_task_wdt_reset();
-        
+
         request->send(200, "text/plain", msg);
         Serial.println(msg);
     });
@@ -284,6 +272,39 @@ void WebServerManager::begin() {
     /****************************************************
      * API endpoints
      ****************************************************/
+    _server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request){
+        const bool connected = WiFi.isConnected();
+        const String ssid = connected ? WiFi.SSID() : "";
+        const int32_t rssi = connected ? WiFi.RSSI() : 0;
+        const String ip = connected ? WiFi.localIP().toString() : "";
+        const String subnet = connected ? WiFi.subnetMask().toString() : "";
+        const String gateway = connected ? WiFi.gatewayIP().toString() : "";
+        const uint32_t uptimeSeconds = millis() / 1000;
+
+        String json = "{";
+        json += "\"wifi\":{";
+        json += "\"connected\":"; json += connected ? "true" : "false";
+        json += ",\"ssid\":\"" + jsonEscape(ssid) + "\"";
+        json += ",\"rssi\":" + String(rssi);
+        json += "},";
+
+        json += "\"network\":{";
+        json += "\"ip\":\"" + ip + "\"";
+        json += ",\"subnet\":\"" + subnet + "\"";
+        json += ",\"gateway\":\"" + gateway + "\"";
+        json += "},";
+
+        json += "\"system\":{";
+        json += "\"uptime\":" + String(uptimeSeconds);
+        json += ",\"freeMemory\":" + String(ESP.getFreeHeap());
+        json += ",\"version\":\"" + String(FIRMWARE_VERSION) + "\"";
+        json += ",\"buildDate\":\"" + String(__DATE__) + " " + String(__TIME__) + "\"";
+        json += "}";
+        json += "}";
+
+        request->send(200, "application/json", json);
+    });
+
     // 1) listPalettes => JSON array of palette names
     _server.on("/api/listPalettes", HTTP_GET, [](AsyncWebServerRequest *request){
         if (!acquireLEDManager(500)) {
@@ -828,12 +849,12 @@ void WebServerManager::begin() {
             int val = request->getParam("val")->value().toInt();
             // Ensure valid range
             if (val < 1) val = 1;
-            if (val > 5) val = 5;
+            if (val > 10) val = 10;
             
             // Set the column skip value on the LEDManager
             ledManager.setColumnSkip(val);
             
-            String msg = "Column skip set to " + String(val);
+            String msg = "Sweep speed set to " + String(val);
             Serial.println(msg);
             LogManager::getInstance().debug(msg);
             
@@ -901,4 +922,42 @@ void WebServerManager::handleClient() {
 String WebServerManager::createPageTemplate(const String& title, const String& content) {
     return "<!DOCTYPE html><html><head><title>" + title + 
            "</title></head><body>" + content + "</body></html>";
+}
+
+void WebServerManager::setupWebSocket() {
+    _logSocket.onEvent([](AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type,
+                          void* arg, uint8_t* data, size_t len) {
+        if (type == WS_EVT_CONNECT) {
+            String snapshot = LogManager::getInstance().getLogs(LogManager::DEBUG);
+            if (snapshot.length()) {
+                client->text(snapshot);
+            }
+        } else if (type == WS_EVT_DATA) {
+            AwsFrameInfo* info = static_cast<AwsFrameInfo*>(arg);
+            if (info->final && info->opcode == WS_TEXT) {
+                // Simple echo for keep-alive
+                String payload;
+                payload.reserve(len);
+                for (size_t i = 0; i < len; ++i) {
+                    payload += static_cast<char>(data[i]);
+                }
+                if (payload == "ping") {
+                    client->text("pong");
+                }
+            }
+        }
+    });
+
+    _server.addHandler(&_logSocket);
+
+    LogManager::getInstance().setListener([this](const String& line) {
+        broadcastLogLine(line);
+    });
+}
+
+void WebServerManager::broadcastLogLine(const String& line) {
+    if (_logSocket.count() == 0) {
+        return;
+    }
+    _logSocket.textAll(line);
 }
