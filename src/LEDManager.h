@@ -77,6 +77,11 @@ public:
     // Game of Life specific controls
     void setColumnSkip(int skip);
     int getColumnSkip() const;
+    void setGoLHighlightWidth(uint8_t width);
+    uint8_t getGoLHighlightWidth() const;
+    bool setGoLHighlightColorHex(const String& hex);
+    String getGoLHighlightColorHex() const;
+    void setGoLHighlightColorRGB(uint8_t r, uint8_t g, uint8_t b);
 
 private:
     // Re-init FastLED if panelCount changes
@@ -115,9 +120,11 @@ private:
     int rotationAngle3;
 
     unsigned long ledUpdateInterval;
-    unsigned long lastLedUpdate;
-    int _speed;
+   unsigned long lastLedUpdate;
+   int _speed;
     int _columnSkip; // For Game of Life animation
+    uint8_t _golHighlightWidth;
+    CRGB _golHighlightColor;
     Preferences _prefs;
     bool _prefsReady;
 };

@@ -10,6 +10,7 @@
 #define LED_TYPE    WS2812B
 #define COLOR_ORDER GRB
 #define DEFAULT_BRIGHTNESS 32 // Initial brightness (0-255)
+#define DEFAULT_PANEL_COUNT 2
 
 // -------------------- DHT Sensor Configuration --------------------
 #define DHTPIN      15

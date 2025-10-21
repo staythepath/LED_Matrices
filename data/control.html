@@ -44,7 +44,7 @@
             
             <!-- Speed slider -->
             <div class="slider-container" id="speedContainer">
-              <label for="sliderSpeed" id="speedLabel">Speed:</label>
+              <label for="sliderSpeed" id="labelSpeed">Speed:</label>
               <input type="range" id="sliderSpeed" min="0" max="100" step="1" value="10">
               <input type="number" id="numSpeed" min="0" max="100" step="1" value="10">
               <span class="slider-min">0</span>
@@ -60,10 +60,24 @@
               <span class="slider-max">10</span>
               <small class="help-text">Higher values move the sweep cursor faster across the panels.</small>
             </div>
+
+            <div class="slider-container game-of-life-control" id="highlightWidthContainer" style="display: none;">
+              <label for="sliderHighlightWidth"><strong>Highlight Width:</strong></label>
+              <input type="range" id="sliderHighlightWidth" min="0" max="4" step="1" value="2">
+              <input type="number" id="numHighlightWidth" min="0" max="4" step="1" value="2">
+              <span class="slider-min">0</span>
+              <span class="slider-max">4</span>
+              <small class="help-text">Set to 1 for a single-column cursor or 0 to disable the sweep glow.</small>
+            </div>
+
+            <div class="dropdown-container game-of-life-control" id="highlightColorContainer" style="display: none;">
+              <label for="inputHighlightColor"><strong>Highlight Color:</strong></label>
+              <input type="color" id="inputHighlightColor" value="#ffffff">
+            </div>
             
             <!-- Brightness -->
             <div class="slider-container">
-              <label for="sliderBrightness">Brightness:</label>
+              <label for="sliderBrightness" id="labelBrightness">Brightness:</label>
               <input type="range" id="sliderBrightness" min="0" max="255" value="30">
               <input type="number" id="numBrightness" min="0" max="255" value="30">
               <span class="slider-min">0</span>
@@ -75,7 +89,7 @@
             
             <!-- Fade Amount -->
             <div class="slider-container">
-              <label for="sliderFade">Fade Amount:</label>
+              <label for="sliderFade" id="labelFade">Fade Amount:</label>
               <input type="range" id="sliderFade" min="0" max="200" value="20">
               <input type="number" id="numFade" min="0" max="200" value="20">
               <span class="slider-min">0</span>
@@ -84,7 +98,7 @@
             
             <!-- Tail Length -->
             <div class="slider-container">
-              <label for="sliderTail">Tail Length:</label>
+              <label for="sliderTail" id="labelTail">Tail Length:</label>
               <input type="range" id="sliderTail" min="0" max="20" value="3">
               <input type="number" id="numTail" min="0" max="20" value="3">
               <span class="slider-min">0</span>
@@ -93,7 +107,7 @@
             
             <!-- Spawn Rate -->
             <div class="slider-container">
-              <label for="sliderSpawn">Spawn Rate:</label>
+              <label for="sliderSpawn" id="labelSpawn">Spawn Rate:</label>
               <input type="range" id="sliderSpawn" min="0" max="100" value="20">
               <input type="number" id="numSpawn" min="0" max="100" value="20">
               <span class="slider-min">0</span>
@@ -102,7 +116,7 @@
             
             <!-- Max Flakes -->
             <div class="slider-container">
-              <label for="sliderMaxFlakes">Max Flakes:</label>
+              <label for="sliderMaxFlakes" id="labelMaxFlakes">Max Flakes:</label>
               <input type="range" id="sliderMaxFlakes" min="1" max="100" value="20">
               <input type="number" id="numMaxFlakes" min="1" max="100" value="20">
               <span class="slider-min">1</span>

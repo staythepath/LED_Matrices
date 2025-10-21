@@ -887,6 +887,71 @@ void WebServerManager::begin() {
         request->send(200, "application/json", jsonResponse);
     });
 
+    _server.on("/api/gol/getHighlight", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+
+        const uint8_t width = ledManager.getGoLHighlightWidth();
+        const String color = ledManager.getGoLHighlightColorHex();
+
+        releaseLEDManager();
+
+        String json = "{\"width\":";
+        json += String(width);
+        json += ",\"color\":\"";
+        json += jsonEscape(color);
+        json += "\"}";
+
+        request->send(200, "application/json", json);
+    });
+
+    _server.on("/api/gol/setHighlightWidth", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+
+        if (!request->hasParam("val")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing val parameter");
+            return;
+        }
+
+        int width = request->getParam("val")->value().toInt();
+        if (width < 0) width = 0;
+        if (width > 8) width = 8;
+        ledManager.setGoLHighlightWidth(static_cast<uint8_t>(width));
+        releaseLEDManager();
+
+        request->send(200, "text/plain", "Highlight width updated");
+    });
+
+    _server.on("/api/gol/setHighlightColor", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+
+        if (!request->hasParam("hex")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing hex parameter");
+            return;
+        }
+
+        const String hex = request->getParam("hex")->value();
+        const bool ok = ledManager.setGoLHighlightColorHex(hex);
+        releaseLEDManager();
+
+        if (!ok) {
+            request->send(400, "text/plain", "Invalid hex colour");
+            return;
+        }
+
+        request->send(200, "text/plain", "Highlight colour updated");
+    });
+
     // 25) Reboot endpoint - restarts the ESP32
     _server.on("/api/reboot", HTTP_GET, [](AsyncWebServerRequest *request) {
         // Send a response before restarting

@@ -23,6 +23,8 @@ public:
     void setRotationAngle2(int angle);
     void setRotationAngle3(int angle);
     void setPanelOrder(int order);
+    void setHighlightWidth(uint8_t width);
+    void setHighlightColor(const CRGB& color);
 
     bool isGameOfLife() const override { return true; }
 
@@ -83,6 +85,8 @@ private:
     uint8_t _highlightBoost;
     uint8_t _fadeInStep;
     uint8_t _fadeOutStep;
+    uint8_t _highlightWidth;
+    CRGB _highlightColor;
 
     // panel configuration
     int _panelOrder;

@@ -41,6 +41,8 @@ GameOfLifeAnimation::GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, i
       _highlightBoost(80),
       _fadeInStep(DEFAULT_FADE_IN_STEP),
       _fadeOutStep(DEFAULT_FADE_OUT_STEP),
+      _highlightWidth(2),
+      _highlightColor(CRGB::White),
       _panelOrder(1),
       _rotation1(0),
       _rotation2(0),
@@ -106,6 +108,17 @@ void GameOfLifeAnimation::setFadeStepControl(uint8_t value) {
     uint8_t clamped = std::min<uint8_t>(value, 20);
     _fadeInStep = map(clamped, 0, 20, MIN_FADE_IN_STEP, MAX_FADE_IN_STEP);
     _fadeOutStep = map(clamped, 0, 20, MIN_FADE_OUT_STEP, MAX_FADE_OUT_STEP);
+}
+
+void GameOfLifeAnimation::setHighlightWidth(uint8_t width) {
+    if (width > 8) {
+        width = 8;
+    }
+    _highlightWidth = width;
+}
+
+void GameOfLifeAnimation::setHighlightColor(const CRGB& color) {
+    _highlightColor = color;
 }
 
 void GameOfLifeAnimation::setRotationAngle1(int angle) { _rotation1 = angle; }
@@ -290,12 +303,20 @@ void GameOfLifeAnimation::renderFrame() {
             } else if (highlightColumn >= _width) {
                 highlightColumn = _width - 1;
             }
-            const int distance = abs(x - highlightColumn);
-            if (distance <= 1) {
-                const uint8_t boost = (distance == 0) ? _highlightBoost : (_highlightBoost / 2);
-                pixel.r = qadd8(pixel.r, boost);
-                pixel.g = qadd8(pixel.g, boost);
-                pixel.b = qadd8(pixel.b, boost);
+
+            if (_highlightWidth > 0) {
+                const int distance = abs(x - highlightColumn);
+                if (distance < _highlightWidth) {
+                    const uint8_t falloff = static_cast<uint8_t>(
+                        ((static_cast<int>(_highlightWidth) - distance) * 255) / static_cast<int>(_highlightWidth)
+                    );
+                    uint8_t boost = scale8(_highlightBoost, falloff);
+                    CRGB highlight = _highlightColor;
+                    highlight.nscale8_video(boost);
+                    pixel.r = qadd8(pixel.r, highlight.r);
+                    pixel.g = qadd8(pixel.g, highlight.g);
+                    pixel.b = qadd8(pixel.b, highlight.b);
+                }
             }
 
             pixel.nscale8_video(_brightness);

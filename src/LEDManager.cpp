@@ -4,6 +4,9 @@
 #include <FastLED.h>
 #include <typeinfo>
 #include <algorithm>
+#include <cstdlib>
+#include <cstdio>
+#include <cmath>
 #include "LogManager.h"
 
 // Include Animation header files
@@ -20,9 +23,9 @@
 CRGB leds[MAX_LEDS];
 
 LEDManager::LEDManager()
-    : _panelCount(2) // default
+    : _panelCount(DEFAULT_PANEL_COUNT)
     , _numLeds(_panelCount * 16 * 16)
-    , _brightness(32)
+    , _brightness(DEFAULT_BRIGHTNESS)
     , currentPalette(0)
     , _currentAnimation(nullptr)
     , _currentAnimationIndex(-1)
@@ -31,14 +34,16 @@ LEDManager::LEDManager()
     , tailLength(3)
     , fadeAmount(39)
     , panelOrder(1)  // Start with right panel first instead of left
-    , rotationAngle1(90)
-    , rotationAngle2(90)
-    , rotationAngle3(90)
+    , rotationAngle1(0)
+    , rotationAngle2(0)
+    , rotationAngle3(0)
     , ledUpdateInterval(38)
     , lastLedUpdate(0)
     , _isInitializing(true)
     , _speed(30)
     , _columnSkip(6) // Midpoint sweep speed by default
+    , _golHighlightWidth(2)
+    , _golHighlightColor(CRGB::White)
     , _prefsReady(false)
 {
     createPalettes();
@@ -297,6 +302,8 @@ void LEDManager::configureCurrentAnimation() {
         anim->setWipeBarBrightness(fadeAmount);
         anim->setColumnSkip(_columnSkip);
         anim->setFadeStepControl(static_cast<uint8_t>(tailLength));
+        anim->setHighlightWidth(_golHighlightWidth);
+        anim->setHighlightColor(_golHighlightColor);
     }
 }
 
@@ -801,9 +808,8 @@ uint8_t LEDManager::getFadeAmount() const {
 void LEDManager::swapPanels(){
     panelOrder=1-panelOrder;
     Serial.println("Panels swapped successfully.");
-    if(_currentAnimationIndex==0 && _currentAnimation){
-        TrafficAnimation* t = static_cast<TrafficAnimation*>(_currentAnimation);
-        t->setPanelOrder(panelOrder);
+    if (_currentAnimation) {
+        configureCurrentAnimation();
     }
 }
 void LEDManager::setPanelOrder(String order){
@@ -818,9 +824,8 @@ void LEDManager::setPanelOrder(String order){
     else{
         return;
     }
-    if(_currentAnimationIndex==0 && _currentAnimation){
-        TrafficAnimation* t = static_cast<TrafficAnimation*>(_currentAnimation);
-        t->setPanelOrder(panelOrder);
+    if (_currentAnimation) {
+        configureCurrentAnimation();
     }
 }
 
@@ -832,22 +837,18 @@ void LEDManager::rotatePanel(String panel, int angle){
     if(panel.equalsIgnoreCase("panel1")){
         rotationAngle1=angle;
         Serial.printf("Panel1 angle set to %d\n", angle);
-        if(_currentAnimationIndex==0 && _currentAnimation){
-            TrafficAnimation* t = static_cast<TrafficAnimation*>(_currentAnimation);
-            t->setRotationAngle1(angle);
-        }
     }
     else if(panel.equalsIgnoreCase("panel2")){
         rotationAngle2=angle;
         Serial.printf("Panel2 angle set to %d\n", angle);
-        if(_currentAnimationIndex==0 && _currentAnimation){
-            TrafficAnimation* t = static_cast<TrafficAnimation*>(_currentAnimation);
-            t->setRotationAngle2(angle);
-        }
     }
     else if(panel.equalsIgnoreCase("panel3")){
         rotationAngle3=angle;
         Serial.printf("Panel3 angle set to %d\n", angle);
+    }
+
+    if (_currentAnimation) {
+        configureCurrentAnimation();
     }
 }
 
@@ -930,6 +931,58 @@ int LEDManager::getColumnSkip() const {
     return _columnSkip;
 }
 
+void LEDManager::setGoLHighlightWidth(uint8_t width) {
+    if (width > 8) {
+        width = 8;
+    }
+    _golHighlightWidth = width;
+    if (_currentAnimation && _currentAnimationIndex == 4) {
+        auto* anim = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        anim->setHighlightWidth(_golHighlightWidth);
+    }
+}
+
+uint8_t LEDManager::getGoLHighlightWidth() const {
+    return _golHighlightWidth;
+}
+
+void LEDManager::setGoLHighlightColorRGB(uint8_t r, uint8_t g, uint8_t b) {
+    _golHighlightColor = CRGB(r, g, b);
+    if (_currentAnimation && _currentAnimationIndex == 4) {
+        auto* anim = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        anim->setHighlightColor(_golHighlightColor);
+    }
+}
+
+bool LEDManager::setGoLHighlightColorHex(const String& hex) {
+    String cleaned = hex;
+    cleaned.trim();
+    if (cleaned.startsWith("#")) {
+        cleaned.remove(0, 1);
+    }
+    if (cleaned.length() != 6) {
+        return false;
+    }
+
+    char* endPtr = nullptr;
+    long value = strtol(cleaned.c_str(), &endPtr, 16);
+    if (endPtr == cleaned.c_str() || value < 0 || value > 0xFFFFFF) {
+        return false;
+    }
+
+    uint8_t r = static_cast<uint8_t>((value >> 16) & 0xFF);
+    uint8_t g = static_cast<uint8_t>((value >> 8) & 0xFF);
+    uint8_t b = static_cast<uint8_t>(value & 0xFF);
+    setGoLHighlightColorRGB(r, g, b);
+    return true;
+}
+
+String LEDManager::getGoLHighlightColorHex() const {
+    char buffer[8];
+    snprintf(buffer, sizeof(buffer), "#%02X%02X%02X", _golHighlightColor.r, _golHighlightColor.g, _golHighlightColor.b);
+    return String(buffer);
+}
+
 void LEDManager::setSpeed(int speed) {
     if (speed < 0 || speed > 100) return;
     
@@ -937,18 +990,19 @@ void LEDManager::setSpeed(int speed) {
     speed = constrain(speed, 0, 100);
     _speed = speed;
 
-    // Exponential decay parameters for smooth speed curve
-    const float minInterval = 1.0f;    // 1ms minimum at max speed
-    const float maxInterval = 2000.0f; // 2000ms at minimum speed
-    const float decayFactor = 0.045f;  // Steeper curve for faster high-end
+    const float minInterval = 1.0f;     // fastest allowed update (ms)
+    const float maxInterval = 6000.0f;  // allow much slower sweeps
+    const float decayFactor = 0.030f;   // smoother curve across range
+
+    float interval = maxInterval * expf(-decayFactor * speed);
+    interval = constrain(interval, minInterval, maxInterval);
+
+    ledUpdateInterval = static_cast<unsigned long>(interval);
+    if (ledUpdateInterval < 1) {
+        ledUpdateInterval = 1;
+    }
     
-    // Exponential decay formula: interval = max * e^(-factor * speed)
-    ledUpdateInterval = maxInterval * exp(-decayFactor * speed);
-    
-    // Constrain to our desired range
-    ledUpdateInterval = constrain(ledUpdateInterval, minInterval, maxInterval);
-    
-    Serial.printf("Speed: %d%%, Interval: %.1fms\n", speed, ledUpdateInterval);
+    Serial.printf("Speed: %d%%, Interval: %.1fms\n", speed, interval);
     
     configureCurrentAnimation();
 }

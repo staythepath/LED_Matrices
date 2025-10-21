@@ -59,6 +59,9 @@ void setup() {
     connectToWifi();
 
     ledManager.begin();
+    if (ledManager.getPanelCount() < DEFAULT_PANEL_COUNT) {
+        ledManager.setPanelCount(DEFAULT_PANEL_COUNT);
+    }
     delay(100);
 
     if (WiFi.isConnected()) {

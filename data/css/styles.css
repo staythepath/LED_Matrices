@@ -260,6 +260,16 @@ input[type="range"]::-ms-thumb {
   box-shadow: 0 0 12px rgba(189, 147, 249, 0.65);
 }
 
+input[type="color"] {
+  width: 60px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--input-border);
+  border-radius: 0.45rem;
+  background: var(--input-bg);
+  cursor: pointer;
+}
+
 button {
   background: var(--primary);
   color: var(--on-surface);

@@ -1,6 +1,14 @@
 const GAME_OF_LIFE_INDEX = 4;
 const controlBindings = {};
 let currentAnimationIndex = 0;
+const defaultLabelText = {
+  speed: "Speed:",
+  brightness: "Brightness:",
+  fade: "Fade Amount:",
+  tail: "Tail Length:",
+  spawn: "Spawn Rate:",
+  maxFlakes: "Max Flakes:",
+};
 
 /************************************************
  * Logging
@@ -144,11 +152,43 @@ function applyBindingValue(key, apiValue) {
 /************************************************
  * Game of Life toggle
  ************************************************/
-function toggleGameOfLifeControls(show) {
-  const container = $("columnSkipContainer");
-  if (container) {
-    container.style.display = show ? "flex" : "none";
+function setLabelText(id, text) {
+  const element = $(id);
+  if (element) {
+    element.textContent = text;
   }
+}
+
+function applyGameOfLifeLabels(isGoL) {
+  if (isGoL) {
+    setLabelText("labelSpeed", "Generation Speed:");
+    setLabelText("labelFade", "Highlight Brightness:");
+    setLabelText("labelTail", "Fade Smoothness:");
+    setLabelText("labelSpawn", "Seed Density:");
+    setLabelText("labelMaxFlakes", "Mutation Rate:");
+  } else {
+    setLabelText("labelSpeed", defaultLabelText.speed);
+    setLabelText("labelFade", defaultLabelText.fade);
+    setLabelText("labelTail", defaultLabelText.tail);
+    setLabelText("labelSpawn", defaultLabelText.spawn);
+    setLabelText("labelMaxFlakes", defaultLabelText.maxFlakes);
+  }
+}
+
+function toggleGameOfLifeControls(show) {
+  const displayMap = {
+    columnSkipContainer: "grid",
+    highlightWidthContainer: "grid",
+    highlightColorContainer: "flex",
+  };
+
+  Object.keys(displayMap).forEach((id) => {
+    const element = $(id);
+    if (element) {
+      element.style.display = show ? displayMap[id] : "none";
+    }
+  });
+  applyGameOfLifeLabels(show);
 }
 
 /************************************************
@@ -221,7 +261,34 @@ function setupUIControls() {
     max: 10,
   });
 
+  bindSliderToApi("gofHighlightWidth", {
+    sliderId: "sliderHighlightWidth",
+    numberId: "numHighlightWidth",
+    endpoint: "/api/gol/setHighlightWidth",
+    min: 0,
+    max: 4,
+  });
+
+  const highlightColorInput = $("inputHighlightColor");
+  if (highlightColorInput) {
+    const sendColor = debounce(() => {
+      const hex = highlightColorInput.value;
+      if (hex && /^#?[0-9a-fA-F]{6}$/.test(hex)) {
+        apiQueue.add(`/api/gol/setHighlightColor?hex=${encodeURIComponent(hex)}`);
+      }
+    }, 200);
+    highlightColorInput.addEventListener("input", sendColor);
+    controlBindings.gofHighlightColor = {
+      setFromApi(hex) {
+        if (hex && hex.length) {
+          highlightColorInput.value = hex.startsWith("#") ? hex : `#${hex}`;
+        }
+      },
+    };
+  }
+
   setupPanelControls();
+  applyGameOfLifeLabels(false);
 }
 
 function setupPanelControls() {
@@ -413,6 +480,20 @@ async function loadSettings() {
       }
     } catch (err) {
       log(`Column skip fetch failed: ${err.message}`);
+    }
+
+    try {
+      const highlightInfo = await fetchJson("/api/gol/getHighlight");
+      if (highlightInfo) {
+        if (highlightInfo.width !== undefined) {
+          applyBindingValue("gofHighlightWidth", highlightInfo.width);
+        }
+        if (highlightInfo.color && controlBindings.gofHighlightColor) {
+          controlBindings.gofHighlightColor.setFromApi(highlightInfo.color);
+        }
+      }
+    } catch (err) {
+      log(`Highlight fetch failed: ${err.message}`);
     }
 
     try {
