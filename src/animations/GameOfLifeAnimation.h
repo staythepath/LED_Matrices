@@ -72,9 +72,11 @@ private:
 
     // stagnation detection
     uint32_t _lastHash;
+    uint32_t _prevHashSecondary;
     uint8_t _hashRepeatCount;
+    uint8_t _twoStateRepeatCount;
     uint32_t _stepsSinceChange;
-    static constexpr uint8_t MAX_REPEAT_HASH = 6;
+    static constexpr uint8_t MAX_REPEAT_HASH = 10;
     static constexpr uint32_t MAX_STEPS_WITHOUT_CHANGE = 80;
 
     // palette

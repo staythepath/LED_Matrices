@@ -32,7 +32,9 @@ GameOfLifeAnimation::GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, i
       _generationReady(false),
       _anyChangeThisPass(false),
       _lastHash(0),
+      _prevHashSecondary(0),
       _hashRepeatCount(0),
+      _twoStateRepeatCount(0),
       _stepsSinceChange(0),
       _allPalettes(nullptr),
       _currentPalette(nullptr),
@@ -173,6 +175,8 @@ void GameOfLifeAnimation::randomize(uint8_t density) {
     _sweepDirection = 1;
     _sweepColumn = 0;
     _hashRepeatCount = 0;
+    _twoStateRepeatCount = 0;
+    _prevHashSecondary = 0;
     _stepsSinceChange = 0;
     _lastHash = hashGrid(_gridA);
     const uint32_t now = millis();
@@ -358,15 +362,31 @@ bool GameOfLifeAnimation::detectStagnation(bool anyChange) {
         restarted = true;
     } else {
         const uint32_t hash = hashGrid(_gridA);
+        bool repeatDetected = false;
+
         if (hash == _lastHash) {
             if (++_hashRepeatCount >= MAX_REPEAT_HASH) {
-                Serial.println("GameOfLife: repeating pattern detected, restarting");
-                randomize(DEFAULT_DENSITY);
-                restarted = true;
+                repeatDetected = true;
+                Serial.println("GameOfLife: steady-state pattern detected, restarting");
+            }
+        } else if (_prevHashSecondary != 0 && hash == _prevHashSecondary) {
+            ++_twoStateRepeatCount;
+            _hashRepeatCount = 0;
+            if (_twoStateRepeatCount >= MAX_REPEAT_HASH) {
+                repeatDetected = true;
+                Serial.println("GameOfLife: oscillating pattern detected, restarting");
             }
         } else {
             _hashRepeatCount = 0;
-            _lastHash = hash;
+            _twoStateRepeatCount = 0;
+        }
+
+        _prevHashSecondary = _lastHash;
+        _lastHash = hash;
+
+        if (repeatDetected) {
+            randomize(DEFAULT_DENSITY);
+            restarted = true;
         }
     }
 
