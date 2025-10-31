@@ -249,11 +249,10 @@ void LEDManager::configureCurrentAnimation() {
         anim->setColumnSkip(sweepSetting);
         anim->setUpdateInterval(baseInterval);
 
-        const float speedScale = 0.5f + (static_cast<float>(_speed) / 100.0f) * 29.5f;
-        anim->setSpeedMultiplier(speedScale);
+        anim->setSpeedPercent(static_cast<uint8_t>(_speed));
 
-        Serial.printf("Game of Life configured mode=%d baseInterval=%lu speedScale=%.2f sweepSetting=%d\n",
-                      static_cast<int>(mode), baseInterval, speedScale, sweepSetting);
+        Serial.printf("Game of Life configured mode=%d baseInterval=%lu speed=%u%% sweepSetting=%d\n",
+                      static_cast<int>(mode), baseInterval, _speed, sweepSetting);
     }
     else if (_currentAnimation->isAutomata()) {
         auto* anim = static_cast<EscherAutomataAnimation*>(_currentAnimation);
@@ -958,21 +957,10 @@ void LEDManager::setUpdateSpeed(unsigned long speed){
         }
         else if(_currentAnimationIndex == 4 && _currentAnimation){
             GameOfLifeAnimation* gA = static_cast<GameOfLifeAnimation*>(_currentAnimation);
-            
-            // Use a simple linear mapping for Game of Life speed control
-            // High UI speed (small value) = high multiplier
-            // Low UI speed (large value) = low multiplier
-            float multiplier = 10.0f - (9.0f * speed / 1500.0f);
-            
-            // Constrain to reasonable range
-            multiplier = constrain(multiplier, 1.0f, 10.0f);
-            
-            // Update interval and speed parameters directly
-            gA->setUpdateInterval(15); // Fixed base update rate
-            gA->setSpeedMultiplier(multiplier);
-            
-            Serial.printf("Game of Life: speed=%lu ms, simplified multiplier=%.2f\n", 
-                         speed, multiplier);
+            gA->setUpdateInterval(speed);
+            gA->setSpeedPercent(static_cast<uint8_t>(_speed));
+            Serial.printf("Game of Life: update interval=%lu ms, ui speed=%u%%\n",
+                          speed, _speed);
         }
     }
 }
@@ -1684,6 +1672,4 @@ bool LEDManager::deletePreset(const String& rawName, String& errorMessage) {
     LogManager::getInstance().info("Preset '" + name + "' deleted.");
     return true;
 }
-
-
 

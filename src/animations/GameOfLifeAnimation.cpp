@@ -54,6 +54,9 @@ GameOfLifeAnimation::GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, i
       _loopPeriod(0),
       _loopPeriodStreak(0),
       _mutationsAppliedThisGeneration(false),
+      _smallPatternRun(0),
+      _speedPercent(30),
+      _simultaneousIntervalMs(60),
       _allPalettes(nullptr),
       _currentPalette(nullptr),
       _usePalette(true),
@@ -119,6 +122,7 @@ GameOfLifeAnimation::~GameOfLifeAnimation() {
 void GameOfLifeAnimation::setUpdateInterval(unsigned long intervalMs) {
     _baseIntervalMs = std::max<unsigned long>(intervalMs, 1UL);
     recalculateSweepInterval();
+    recalculateSimultaneousInterval();
 }
 
 void GameOfLifeAnimation::setSpeedMultiplier(float multiplier) {
@@ -207,6 +211,7 @@ void GameOfLifeAnimation::setUpdateMode(UpdateMode mode) {
     _sweepDirection = 1;
     _sweepColumn = 0;
     _lastSweepMs = millis();
+    recalculateSimultaneousInterval();
 }
 
 void GameOfLifeAnimation::setNeighborMode(NeighborMode mode) {
@@ -239,6 +244,15 @@ void GameOfLifeAnimation::setMutationChance(uint8_t percent) {
     _mutationChance = percent;
 }
 
+void GameOfLifeAnimation::setSpeedPercent(uint8_t percent) {
+    _speedPercent = percent > 100 ? 100 : percent;
+    const float normalized = static_cast<float>(_speedPercent) / 100.0f;
+    const float eased = normalized * normalized * (3.0f - 2.0f * normalized);
+    const float speedScale = 0.5f + (29.5f * eased);
+    setSpeedMultiplier(speedScale);
+    recalculateSimultaneousInterval();
+}
+
 void GameOfLifeAnimation::setRotationAngle1(int angle) { _rotation1 = angle; }
 void GameOfLifeAnimation::setRotationAngle2(int angle) { _rotation2 = angle; }
 void GameOfLifeAnimation::setRotationAngle3(int angle) { _rotation3 = angle; }
@@ -255,6 +269,20 @@ void GameOfLifeAnimation::recalculateSweepInterval() {
     }
     _sweepIntervalMs = static_cast<uint32_t>(interval);
 }
+void GameOfLifeAnimation::recalculateSimultaneousInterval() {
+    const float normalized = static_cast<float>(_speedPercent) / 100.0f;
+    const float eased = normalized * normalized * normalized;
+    const float minMs = 8.0f;
+    const float slowBase = static_cast<float>(_baseIntervalMs);
+    const float slowMs = std::max(slowBase * 4.0f, 600.0f);
+    const float blend = 1.0f - eased;
+    float interval = minMs + (slowMs - minMs) * blend;
+    if (interval < 1.0f) {
+        interval = 1.0f;
+    }
+    _simultaneousIntervalMs = static_cast<uint32_t>(interval);
+}
+
 void GameOfLifeAnimation::begin() {
     if (!_gridA || !_gridB) return;
     randomize(_seedDensity);
@@ -309,7 +337,9 @@ void GameOfLifeAnimation::randomize(uint8_t density) {
     _lastSweepMs = now;
     _lastRenderMs = now;
     recalculateSweepInterval();
+    recalculateSimultaneousInterval();
     _mutationsAppliedThisGeneration = false;
+    _smallPatternRun = 0;
 }
 
 void GameOfLifeAnimation::initializeHashHistory(uint32_t initialHash) {
@@ -339,7 +369,12 @@ void GameOfLifeAnimation::update() {
     if (!_gridA || !_gridB) return;
 
     const uint32_t now = millis();
-    const uint32_t sourceInterval = (_updateMode == UpdateMode::Sweep) ? _sweepIntervalMs : _baseIntervalMs;
+    uint32_t sourceInterval = _baseIntervalMs;
+    if (_updateMode == UpdateMode::Sweep) {
+        sourceInterval = _sweepIntervalMs;
+    } else {
+        sourceInterval = _simultaneousIntervalMs;
+    }
     const uint32_t generationInterval = std::max<uint32_t>(
         1, static_cast<uint32_t>(static_cast<float>(sourceInterval) / _speedMultiplier)
     );
@@ -930,10 +965,22 @@ bool GameOfLifeAnimation::detectStagnation(bool anyChange) {
         }
     }
 
+    if (aliveCount <= SMALL_PATTERN_THRESHOLD) {
+        if (_smallPatternRun < SMALL_PATTERN_LIMIT) {
+            ++_smallPatternRun;
+        }
+    } else {
+        _smallPatternRun = 0;
+    }
+
     bool restarted = false;
 
     if (aliveCount == 0 || _stepsSinceChange >= MAX_STEPS_WITHOUT_CHANGE) {
         Serial.println("GameOfLife: restarting due to stagnation/empty grid");
+        randomize(_seedDensity);
+        restarted = true;
+    } else if (_smallPatternRun >= SMALL_PATTERN_LIMIT) {
+        Serial.println("GameOfLife: small travelling pattern detected, reseeding");
         randomize(_seedDensity);
         restarted = true;
     } else {
@@ -974,6 +1021,7 @@ bool GameOfLifeAnimation::detectStagnation(bool anyChange) {
 
     if (restarted) {
         _generationReady = false;
+        _smallPatternRun = 0;
     }
 
     return restarted;
@@ -1138,9 +1186,4 @@ int GameOfLifeAnimation::countNeighbors(const uint8_t* grid, int x, int y) const
     }
     return count;
 }
-
-
-
-
-
 

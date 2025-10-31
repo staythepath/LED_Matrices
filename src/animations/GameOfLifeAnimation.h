@@ -54,6 +54,7 @@ public:
     void setClusterColorMode(ClusterColorMode mode);
     void setSeedDensity(uint8_t percent);
     void setMutationChance(uint8_t percent);
+    void setSpeedPercent(uint8_t percent);
 
     bool isGameOfLife() const override { return true; }
 
@@ -78,6 +79,7 @@ private:
     void startPulseGroup();
     CRGB computePulseColor(int idx) const;
     void ensurePulseStorage();
+    void recalculateSimultaneousInterval();
     void applyBirth(int idx);
     void applyDeath(int idx);
     bool detectStagnation(bool anyChange);
@@ -120,6 +122,8 @@ private:
     static constexpr uint32_t MAX_STEPS_WITHOUT_CHANGE = 80;
     static constexpr uint8_t HASH_HISTORY = 32;
     static constexpr uint8_t LOOP_REPEAT_THRESHOLD = 10;
+    static constexpr uint8_t SMALL_PATTERN_THRESHOLD = 12;
+    static constexpr uint16_t SMALL_PATTERN_LIMIT = 180;
 
     uint32_t _lastHash;
     uint32_t _prevHashSecondary;
@@ -134,6 +138,9 @@ private:
     uint8_t _loopPeriod;
     uint8_t _loopPeriodStreak;
     bool _mutationsAppliedThisGeneration;
+    uint16_t _smallPatternRun;
+    uint8_t _speedPercent;
+    uint32_t _simultaneousIntervalMs;
 
     // palette
     const std::vector<std::vector<CRGB>>* _allPalettes;
@@ -177,4 +184,3 @@ private:
     static constexpr uint8_t MIN_FADE_OUT_STEP = 6;
     static constexpr uint8_t MAX_FADE_OUT_STEP = 32;
 };
-
