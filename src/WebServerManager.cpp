@@ -849,7 +849,7 @@ void WebServerManager::begin() {
             int val = request->getParam("val")->value().toInt();
             // Ensure valid range
             if (val < 1) val = 1;
-            if (val > 10) val = 10;
+            if (val > 20) val = 20;
             
             // Set the column skip value on the LEDManager
             ledManager.setColumnSkip(val);
@@ -907,6 +907,28 @@ void WebServerManager::begin() {
         request->send(200, "application/json", json);
     });
 
+    _server.on("/api/gol/getConfig", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+
+        String json = "{";
+        json += "\"updateMode\":" + String(ledManager.getGoLUpdateMode());
+        json += ",\"neighborMode\":" + String(ledManager.getGoLNeighborMode());
+        json += ",\"wrapEdges\":" + String(ledManager.getGoLWrapEdges() ? "true" : "false");
+        json += ",\"rule\":\"" + jsonEscape(ledManager.getGoLRules()) + "\"";
+        json += ",\"clusterColorMode\":" + String(ledManager.getGoLClusterColorMode());
+        json += ",\"seedDensity\":" + String(ledManager.getGoLSeedDensity());
+        json += ",\"mutationChance\":" + String(ledManager.getGoLMutationChance());
+        json += ",\"uniformBirths\":" + String(ledManager.getGoLUniformBirths() ? "true" : "false");
+        json += ",\"birthColor\":\"" + jsonEscape(ledManager.getGoLBirthColorHex()) + "\"";
+        json += "}";
+
+        releaseLEDManager();
+        request->send(200, "application/json", json);
+    });
+
     _server.on("/api/gol/setHighlightWidth", HTTP_GET, [](AsyncWebServerRequest *request){
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
@@ -952,11 +974,353 @@ void WebServerManager::begin() {
         request->send(200, "text/plain", "Highlight colour updated");
     });
 
+    _server.on("/api/gol/setUniformBirths", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+
+        if (!request->hasParam("val")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing val parameter");
+            return;
+        }
+
+        bool enabled = request->getParam("val")->value().toInt() != 0;
+        ledManager.setGoLUniformBirths(enabled);
+        releaseLEDManager();
+
+        request->send(200, "text/plain", String("Uniform birth colour ") + (enabled ? "enabled" : "disabled"));
+    });
+
+    _server.on("/api/gol/setBirthColor", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+
+        if (!request->hasParam("hex")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing hex parameter");
+            return;
+        }
+
+        const String hex = request->getParam("hex")->value();
+        const bool ok = ledManager.setGoLBirthColorHex(hex);
+        releaseLEDManager();
+
+        if (!ok) {
+            request->send(400, "text/plain", "Invalid hex colour");
+            return;
+        }
+
+        request->send(200, "text/plain", "Uniform birth colour updated");
+    });
+
+    _server.on("/api/presets/list", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+
+        auto names = ledManager.listPresets();
+        releaseLEDManager();
+
+        String json = "{\"presets\":[";
+        for (size_t i = 0; i < names.size(); ++i) {
+            json += "\"" + jsonEscape(names[i]) + "\"";
+            if (i + 1 < names.size()) {
+                json += ",";
+            }
+        }
+        json += "]}";
+        request->send(200, "application/json", json);
+    });
+
+    _server.on("/api/presets/save", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        if (!request->hasParam("name")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing name parameter");
+            return;
+        }
+        String error;
+        const String name = request->getParam("name")->value();
+        const bool ok = ledManager.savePreset(name, error);
+        releaseLEDManager();
+        if (!ok) {
+            request->send(400, "text/plain", error);
+            return;
+        }
+        request->send(200, "text/plain", "Preset saved");
+    });
+
+    _server.on("/api/presets/load", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        if (!request->hasParam("name")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing name parameter");
+            return;
+        }
+        String error;
+        const String name = request->getParam("name")->value();
+        const bool ok = ledManager.loadPreset(name, error);
+        releaseLEDManager();
+        if (!ok) {
+            request->send(400, "text/plain", error);
+            return;
+        }
+        request->send(200, "text/plain", "Preset loaded");
+    });
+
+    _server.on("/api/presets/delete", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        if (!request->hasParam("name")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing name parameter");
+            return;
+        }
+        String error;
+        const String name = request->getParam("name")->value();
+        const bool ok = ledManager.deletePreset(name, error);
+        releaseLEDManager();
+        if (!ok) {
+            request->send(400, "text/plain", error);
+            return;
+        }
+        request->send(200, "text/plain", "Preset deleted");
+    });
+
+    _server.on("/api/panel/getConfig", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        const int orderValue = ledManager.getPanelOrder();
+        const String orderString = (orderValue == 0) ? "left" : "right";
+        const int rotation1 = ledManager.getRotation("panel1");
+        const int rotation2 = ledManager.getRotation("panel2");
+        const int rotation3 = ledManager.getRotation("panel3");
+        releaseLEDManager();
+
+        String json = "{";
+        json += "\"order\":\"" + orderString + "\"";
+        json += ",\"rotation1\":" + String(rotation1);
+        json += ",\"rotation2\":" + String(rotation2);
+        json += ",\"rotation3\":" + String(rotation3);
+        json += "}";
+        request->send(200, "application/json", json);
+    });
+
+    _server.on("/api/gol/setUpdateMode", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        if (!request->hasParam("val")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing val parameter");
+            return;
+        }
+        uint8_t mode = static_cast<uint8_t>(request->getParam("val")->value().toInt());
+        ledManager.setGoLUpdateMode(mode);
+        releaseLEDManager();
+        request->send(200, "text/plain", "Update mode set");
+    });
+
+    _server.on("/api/gol/setNeighborMode", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        if (!request->hasParam("val")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing val parameter");
+            return;
+        }
+        uint8_t mode = static_cast<uint8_t>(request->getParam("val")->value().toInt());
+        ledManager.setGoLNeighborMode(mode);
+        releaseLEDManager();
+        request->send(200, "text/plain", "Neighbor mode set");
+    });
+
+    _server.on("/api/gol/setWrapEdges", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        bool wrap = request->hasParam("val") ? (request->getParam("val")->value().toInt() != 0) : true;
+        ledManager.setGoLWrapEdges(wrap);
+        releaseLEDManager();
+        request->send(200, "text/plain", String("Wrap edges ") + (wrap ? "enabled" : "disabled"));
+    });
+
+    _server.on("/api/gol/setRules", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        if (!request->hasParam("val")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing val parameter");
+            return;
+        }
+        String value = request->getParam("val")->value();
+        bool ok = ledManager.setGoLRules(value);
+        releaseLEDManager();
+        if (!ok) {
+            request->send(400, "text/plain", "Invalid rule string");
+        } else {
+            request->send(200, "text/plain", "Rule updated");
+        }
+    });
+
+    _server.on("/api/gol/setClusterMode", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        if (!request->hasParam("val")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing val parameter");
+            return;
+        }
+        uint8_t mode = static_cast<uint8_t>(request->getParam("val")->value().toInt());
+        ledManager.setGoLClusterColorMode(mode);
+        releaseLEDManager();
+        request->send(200, "text/plain", "Cluster colour mode updated");
+    });
+
+    _server.on("/api/gol/setSeedDensity", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        if (!request->hasParam("val")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing val parameter");
+            return;
+        }
+        int value = request->getParam("val")->value().toInt();
+        if (value < 0) value = 0;
+        if (value > 100) value = 100;
+        ledManager.setGoLSeedDensity(static_cast<uint8_t>(value));
+        releaseLEDManager();
+        request->send(200, "text/plain", "Seed density updated");
+    });
+
+    _server.on("/api/gol/setMutation", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        if (!request->hasParam("val")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing val parameter");
+            return;
+        }
+        int value = request->getParam("val")->value().toInt();
+        if (value < 0) value = 0;
+        if (value > 100) value = 100;
+        ledManager.setGoLMutationChance(static_cast<uint8_t>(value));
+        releaseLEDManager();
+        request->send(200, "text/plain", "Mutation chance updated");
+    });
+
+    _server.on("/api/automata/getConfig", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        const uint8_t mode = ledManager.getAutomataMode();
+        const uint8_t primary = ledManager.getAutomataPrimary();
+        const uint8_t secondary = ledManager.getAutomataSecondary();
+        releaseLEDManager();
+
+        String json = "{\"mode\":" + String(mode) +
+                      ",\"primary\":" + String(primary) +
+                      ",\"secondary\":" + String(secondary) + "}";
+        request->send(200, "application/json", json);
+    });
+
+    _server.on("/api/automata/setMode", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        if (!request->hasParam("val")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing val parameter");
+            return;
+        }
+        int value = request->getParam("val")->value().toInt();
+        if (value < 0) value = 0;
+        if (value > 2) value = 2;
+        ledManager.setAutomataMode(static_cast<uint8_t>(value));
+        releaseLEDManager();
+        request->send(200, "text/plain", "StrangeLoop mode updated");
+    });
+
+    _server.on("/api/automata/setPrimary", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        if (!request->hasParam("val")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing val parameter");
+            return;
+        }
+        int value = request->getParam("val")->value().toInt();
+        if (value < 0) value = 0;
+        if (value > 100) value = 100;
+        ledManager.setAutomataPrimary(static_cast<uint8_t>(value));
+        releaseLEDManager();
+        request->send(200, "text/plain", "Automata primary control updated");
+    });
+
+    _server.on("/api/automata/setSecondary", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        if (!request->hasParam("val")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing val parameter");
+            return;
+        }
+        int value = request->getParam("val")->value().toInt();
+        if (value < 0) value = 0;
+        if (value > 100) value = 100;
+        ledManager.setAutomataSecondary(static_cast<uint8_t>(value));
+        releaseLEDManager();
+        request->send(200, "text/plain", "Automata secondary control updated");
+    });
+
+    _server.on("/api/automata/reset", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        ledManager.resetAutomataPattern();
+        releaseLEDManager();
+        request->send(200, "text/plain", "Automata pattern reseeded");
+    });
+
     // 25) Reboot endpoint - restarts the ESP32
     _server.on("/api/reboot", HTTP_GET, [](AsyncWebServerRequest *request) {
         // Send a response before restarting
         request->send(200, "text/plain", "Rebooting ESP32...");
-        
+
         // Log the reboot request
         Serial.println("Reboot requested via web interface");
         LogManager::getInstance().info("System reboot initiated via web interface");

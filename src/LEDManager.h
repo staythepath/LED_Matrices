@@ -82,6 +82,42 @@ public:
     bool setGoLHighlightColorHex(const String& hex);
     String getGoLHighlightColorHex() const;
     void setGoLHighlightColorRGB(uint8_t r, uint8_t g, uint8_t b);
+    void setGoLUpdateMode(uint8_t mode);
+    uint8_t getGoLUpdateMode() const;
+    void setGoLNeighborMode(uint8_t mode);
+    uint8_t getGoLNeighborMode() const;
+    void setGoLWrapEdges(bool wrap);
+    bool getGoLWrapEdges() const;
+    bool setGoLRules(const String& rule);
+    void setGoLSeedDensity(uint8_t percent);
+    uint8_t getGoLSeedDensity() const;
+    void setGoLMutationChance(uint8_t percent);
+    uint8_t getGoLMutationChance() const;
+    String getGoLRules() const;
+    void setGoLClusterColorMode(uint8_t mode);
+    uint8_t getGoLClusterColorMode() const;
+    void setGoLUniformBirths(bool enabled);
+    bool getGoLUniformBirths() const;
+    bool setGoLBirthColorHex(const String& hex);
+    String getGoLBirthColorHex() const;
+    void setGoLBirthColorRGB(uint8_t r, uint8_t g, uint8_t b);
+
+    // Strange loop / automata controls
+    void setAutomataMode(uint8_t mode);
+    uint8_t getAutomataMode() const;
+    void setAutomataPrimary(uint8_t value);
+    uint8_t getAutomataPrimary() const;
+    void setAutomataSecondary(uint8_t value);
+    uint8_t getAutomataSecondary() const;
+    void resetAutomataPattern();
+
+    // Presets
+    std::vector<String> listPresets();
+    bool savePreset(const String& name, String& errorMessage);
+    bool loadPreset(const String& name, String& errorMessage);
+    bool deletePreset(const String& name, String& errorMessage);
+
+    int getPanelOrder() const { return panelOrder; }
 
 private:
     // Re-init FastLED if panelCount changes
@@ -94,6 +130,46 @@ private:
     // The bigger arrow + digit methods
     void drawUpArrow(int baseIndex);
     void drawLargeDigit(int baseIndex, int digit);
+
+    struct PresetSnapshot {
+        int panelCount;
+        int animationIndex;
+        int paletteIndex;
+        uint8_t brightness;
+        uint8_t fadeAmount;
+        int tailLength;
+        int speed;
+        float spawnRate;
+        int maxFlakes;
+        int columnSkip;
+        uint8_t highlightWidth;
+        String highlightColorHex;
+        bool uniformBirths;
+        String birthColorHex;
+        uint8_t golUpdateMode;
+        uint8_t golNeighborMode;
+        bool golWrapEdges;
+        uint8_t golClusterColorMode;
+        uint8_t golSeedDensity;
+        uint8_t golMutationChance;
+        String golRuleString;
+        int panelOrder;
+        int rotation1;
+        int rotation2;
+        int rotation3;
+        uint8_t automataMode;
+        uint8_t automataPrimary;
+        uint8_t automataSecondary;
+    };
+
+    PresetSnapshot captureCurrentPreset() const;
+    String serializePreset(const PresetSnapshot& snapshot) const;
+    bool deserializePreset(const String& payload, PresetSnapshot& snapshot) const;
+    bool ensurePrefsReady();
+    String sanitizePresetName(const String& name) const;
+    std::vector<String> loadPresetNameList();
+    void storePresetNameList(const std::vector<String>& names);
+    void applyPreset(const PresetSnapshot& snapshot);
 
 private:
     bool _isInitializing;  // Flag to indicate system is still initializing
@@ -125,8 +201,24 @@ private:
     int _columnSkip; // For Game of Life animation
     uint8_t _golHighlightWidth;
     CRGB _golHighlightColor;
+    uint8_t _golUpdateMode;
+    uint8_t _golNeighborMode;
+    bool _golWrapEdges;
+    uint8_t _golClusterColorMode;
+    bool _golUniformBirths;
+    CRGB _golBirthColor;
+    uint8_t _golSeedDensity;
+    uint8_t _golMutationChance;
+    uint16_t _golBirthMask;
+    uint16_t _golSurviveMask;
+    String _golRuleString;
+    uint8_t _automataMode;
+    uint8_t _automataPrimary;
+    uint8_t _automataSecondary;
     Preferences _prefs;
     bool _prefsReady;
 };
 
 #endif // LEDMANAGER_H
+
+

@@ -40,6 +40,7 @@ public:
     virtual bool isRainbowWave() const { return false; }
     virtual bool isGameOfLife() const { return false; }
     virtual bool isFirework() const { return false; }
+    virtual bool isAutomata() const { return false; }
 
 protected:
     // Shared with derived classes

@@ -28,160 +28,469 @@
         
         <!-- Two-column layout for main controls -->
         <div class="two-columns">
-          <!-- Left column - Animation & Visual settings combined -->
-          <div class="settings-card">
-            <h2>Animation & Visual Settings</h2>
-            
-            <div class="dropdown-container">
-              <label for="selAnimation">Animation:</label>
-              <select id="selAnimation"></select>
-            </div>
-            
-            <div class="dropdown-container">
-              <label for="paletteSelect">Color Palette:</label>
-              <select id="paletteSelect"></select>
-            </div>
-            
-            <!-- Speed slider -->
-            <div class="slider-container" id="speedContainer">
-              <label for="sliderSpeed" id="labelSpeed">Speed:</label>
-              <input type="range" id="sliderSpeed" min="0" max="100" step="1" value="10">
-              <input type="number" id="numSpeed" min="0" max="100" step="1" value="10">
-              <span class="slider-min">0</span>
-              <span class="slider-max">100</span>
-            </div>
-            
-            <!-- Column Skip slider (only for Game of Life) -->
-            <div class="slider-container game-of-life-control" id="columnSkipContainer" data-control-type="column-skip" style="display: none;">
-              <label for="sliderColumnSkip"><strong>Sweep Speed:</strong></label>
-              <input type="range" id="sliderColumnSkip" min="1" max="10" step="1" value="6">
-              <input type="number" id="numColumnSkip" min="1" max="10" step="1" value="6">
-              <span class="slider-min">1</span>
-              <span class="slider-max">10</span>
-              <small class="help-text">Higher values move the sweep cursor faster across the panels.</small>
-            </div>
+          <!-- Left column - core and animation-specific settings -->
+          <div class="column-stack">
+            <section class="control-section">
+              <h2>Animation Control</h2>
 
-            <div class="slider-container game-of-life-control" id="highlightWidthContainer" style="display: none;">
-              <label for="sliderHighlightWidth"><strong>Highlight Width:</strong></label>
-              <input type="range" id="sliderHighlightWidth" min="0" max="4" step="1" value="2">
-              <input type="number" id="numHighlightWidth" min="0" max="4" step="1" value="2">
-              <span class="slider-min">0</span>
-              <span class="slider-max">4</span>
-              <small class="help-text">Set to 1 for a single-column cursor or 0 to disable the sweep glow.</small>
-            </div>
+              <div class="control-row">
+                <div class="control-info">
+                  <label for="selAnimation">Animation</label>
+                  <p>Select which animation is currently rendered on the LED panels.</p>
+                </div>
+                <div class="control-input">
+                  <select id="selAnimation"></select>
+                  <p id="animationStatus" class="control-status" hidden></p>
+                </div>
+              </div>
 
-            <div class="dropdown-container game-of-life-control" id="highlightColorContainer" style="display: none;">
-              <label for="inputHighlightColor"><strong>Highlight Color:</strong></label>
-              <input type="color" id="inputHighlightColor" value="#ffffff">
-            </div>
-            
-            <!-- Brightness -->
-            <div class="slider-container">
-              <label for="sliderBrightness" id="labelBrightness">Brightness:</label>
-              <input type="range" id="sliderBrightness" min="0" max="255" value="30">
-              <input type="number" id="numBrightness" min="0" max="255" value="30">
-              <span class="slider-min">0</span>
-              <span class="slider-max">255</span>
-            </div>
-            
-            <!-- Visual effect settings -->
-            <h3>Visual Effects</h3>
-            
-            <!-- Fade Amount -->
-            <div class="slider-container">
-              <label for="sliderFade" id="labelFade">Fade Amount:</label>
-              <input type="range" id="sliderFade" min="0" max="200" value="20">
-              <input type="number" id="numFade" min="0" max="200" value="20">
-              <span class="slider-min">0</span>
-              <span class="slider-max">200</span>
-            </div>
-            
-            <!-- Tail Length -->
-            <div class="slider-container">
-              <label for="sliderTail" id="labelTail">Tail Length:</label>
-              <input type="range" id="sliderTail" min="0" max="20" value="3">
-              <input type="number" id="numTail" min="0" max="20" value="3">
-              <span class="slider-min">0</span>
-              <span class="slider-max">20</span>
-            </div>
-            
-            <!-- Spawn Rate -->
-            <div class="slider-container">
-              <label for="sliderSpawn" id="labelSpawn">Spawn Rate:</label>
-              <input type="range" id="sliderSpawn" min="0" max="100" value="20">
-              <input type="number" id="numSpawn" min="0" max="100" value="20">
-              <span class="slider-min">0</span>
-              <span class="slider-max">100</span>
-            </div>
-            
-            <!-- Max Flakes -->
-            <div class="slider-container">
-              <label for="sliderMaxFlakes" id="labelMaxFlakes">Max Flakes:</label>
-              <input type="range" id="sliderMaxFlakes" min="1" max="100" value="20">
-              <input type="number" id="numMaxFlakes" min="1" max="100" value="20">
-              <span class="slider-min">1</span>
-              <span class="slider-max">100</span>
-            </div>
+              <div class="control-row">
+                <div class="control-info">
+                  <label for="paletteSelect">Color Palette</label>
+                  <p>Applies a colour palette to animations that support palette-driven rendering.</p>
+                </div>
+                <div class="control-input">
+                  <select id="paletteSelect"></select>
+                  <p id="paletteStatus" class="control-status" hidden></p>
+                </div>
+              </div>
+
+              <div class="control-row">
+                <div class="control-info">
+                  <label for="sliderBrightness" id="labelBrightness">Brightness</label>
+                  <p id="helpBrightness">Adjusts the global LED brightness. Lower values reduce power draw.</p>
+                </div>
+                <div class="control-input">
+                  <div class="range-wrapper">
+                    <input type="range" id="sliderBrightness" min="0" max="255" value="30">
+                    <output id="outputBrightness" class="range-output">30</output>
+                  </div>
+                  <div class="control-meta">
+                    <input type="number" id="numBrightness" min="0" max="255" value="30">
+                    <span class="range-bounds"><span>0</span><span>255</span></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="control-row">
+                <div class="control-info">
+                  <label for="sliderSpeed" id="labelSpeed">Speed</label>
+                  <p id="helpSpeed">Controls how quickly each animation advances. Higher values mean faster motion.</p>
+                </div>
+                <div class="control-input">
+                  <div class="range-wrapper">
+                    <input type="range" id="sliderSpeed" min="0" max="100" step="1" value="10">
+                    <output id="outputSpeed" class="range-output">10%</output>
+                  </div>
+                  <div class="control-meta">
+                    <input type="number" id="numSpeed" min="0" max="100" step="1" value="10">
+                    <span class="range-bounds"><span>0</span><span>100</span></span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="control-section">
+              <h2>Animation Settings</h2>
+
+              <div class="control-row game-of-life-control" id="golModeContainer" style="display: none;">
+                <div class="control-info">
+                  <label for="selectGoLMode">Update Mode</label>
+                  <p id="golModeDescription">Controls how the Game of Life grid advances.</p>
+                </div>
+                <div class="control-input">
+                  <select id="selectGoLMode">
+                    <option value="0">Sweep</option>
+                    <option value="1">Simultaneous</option>
+                    <option value="2">Fade Only</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="control-row game-of-life-control" id="golRuleContainer" style="display: none;">
+                <div class="control-info">
+                  <label for="inputGoLRule">Rule (B/S)</label>
+                  <p>Specify birth/survival counts using standard Game of Life notation.</p>
+                </div>
+                <div class="control-input input-pair">
+                  <input type="text" id="inputGoLRule" value="B3/S23">
+                  <button id="btnApplyGoLRule">Apply</button>
+                </div>
+              </div>
+
+              <div class="control-row game-of-life-control" id="golNeighborContainer" style="display: none;">
+                <div class="control-info">
+                  <label for="selectGoLNeighbor">Connectivity</label>
+                  <p>Choose whether cells consider 4-way or 8-way neighbours.</p>
+                </div>
+                <div class="control-input">
+                  <select id="selectGoLNeighbor">
+                    <option value="0">4-Connected</option>
+                    <option value="1">8-Connected</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="control-row game-of-life-control" id="golWrapContainer" style="display: none;">
+                <div class="control-info">
+                  <label for="selectGoLWrap">Edge Handling</label>
+                  <p>Wrap connects edges like a torus; clamp treats edges as inactive.</p>
+                </div>
+                <div class="control-input">
+                  <select id="selectGoLWrap">
+                    <option value="1">Wrap</option>
+                    <option value="0">Clamp</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="control-row game-of-life-control" id="golClusterContainer" style="display: none;">
+                <div class="control-info">
+                  <label for="selectGoLCluster">Cluster Coloring</label>
+                  <p>Colour living cells based on size, age, or stability.</p>
+                </div>
+                <div class="control-input">
+                  <select id="selectGoLCluster">
+                    <option value="0">Disabled</option>
+                    <option value="1">By Size</option>
+                    <option value="2">By Average Age</option>
+                    <option value="3">By Shape</option>
+                    <option value="4">Stable ID</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="control-row game-of-life-control" id="columnSkipContainer" data-control-type="column-skip" style="display: none;">
+                <div class="control-info">
+                  <label for="sliderColumnSkip">Sweep Pass Speed</label>
+                  <p>Sets how quickly the sweep cursor crosses the grid in Sweep mode.</p>
+                </div>
+                <div class="control-input">
+                  <div class="range-wrapper">
+                    <input type="range" id="sliderColumnSkip" min="1" max="20" step="1" value="6">
+                    <output id="outputColumnSkip" class="range-output">6</output>
+                  </div>
+                  <div class="control-meta">
+                    <input type="number" id="numColumnSkip" min="1" max="20" step="1" value="6">
+                    <span class="range-bounds"><span>1</span><span>20</span></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="control-row game-of-life-control" id="highlightWidthContainer" style="display: none;">
+                <div class="control-info">
+                  <label for="sliderHighlightWidth">Highlight Width</label>
+                  <p>Sets how many columns glow as the sweep passes. 0 hides the cursor.</p>
+                </div>
+                <div class="control-input">
+                  <div class="range-wrapper">
+                    <input type="range" id="sliderHighlightWidth" min="0" max="4" step="1" value="2">
+                    <output id="outputHighlightWidth" class="range-output">2</output>
+                  </div>
+                  <div class="control-meta">
+                    <input type="number" id="numHighlightWidth" min="0" max="4" step="1" value="2">
+                    <span class="range-bounds"><span>0</span><span>4</span></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="control-row game-of-life-control" id="highlightColorContainer" style="display: none;">
+                <div class="control-info">
+                  <label for="inputHighlightColor">Highlight Color</label>
+                  <p>Select the colour used for the sweep cursor glow.</p>
+                </div>
+                <div class="control-input color-input">
+                  <input type="color" id="inputHighlightColor" value="#ffffff">
+                </div>
+              </div>
+
+              <div class="control-row game-of-life-control" id="uniformBirthContainer" style="display: none;">
+                <div class="control-info">
+                  <label for="chkUniformBirths">Uniform Birth Color</label>
+                  <p>When enabled, new cells use the selected colour instead of random palette picks.</p>
+                </div>
+                <div class="control-input toggle-color">
+                  <label class="inline-toggle">
+                    <input type="checkbox" id="chkUniformBirths">
+                    <span>Enable</span>
+                  </label>
+                  <input type="color" id="inputUniformBirthColor" value="#ffffff" disabled>
+                </div>
+              </div>
+
+              <div class="control-row game-of-life-control" id="seedDensityContainer" style="display: none;">
+                <div class="control-info">
+                  <label for="sliderSeedDensity">Starting Fill (%)</label>
+                  <p>Controls the initial population when the grid reseeds.</p>
+                </div>
+                <div class="control-input">
+                  <div class="range-wrapper">
+                    <input type="range" id="sliderSeedDensity" min="5" max="100" step="1" value="33">
+                    <output id="outputSeedDensity" class="range-output">33%</output>
+                  </div>
+                  <div class="control-meta">
+                    <input type="number" id="numSeedDensity" min="5" max="100" step="1" value="33">
+                    <span class="range-bounds"><span>5</span><span>100</span></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="control-row game-of-life-control" id="mutationChanceContainer" style="display: none;">
+                <div class="control-info">
+                  <label for="sliderMutationChance">Mutation Nudges (%)</label>
+                  <p>Chance per cell each generation to flip alive or dead. 0 disables mutations.</p>
+                </div>
+                <div class="control-input">
+                  <div class="range-wrapper">
+                    <input type="range" id="sliderMutationChance" min="0" max="30" step="1" value="0">
+                    <output id="outputMutationChance" class="range-output">0%</output>
+                  </div>
+                  <div class="control-meta">
+                    <input type="number" id="numMutationChance" min="0" max="30" step="1" value="0">
+                    <span class="range-bounds"><span>0</span><span>30</span></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="control-row automata-control" id="automataModeContainer" style="display: none;">
+                <div class="control-info">
+                  <label for="selectAutomataMode">Strange Loop Mode</label>
+                  <p id="automataModeHelp">Choose which automata experiment is rendered.</p>
+                </div>
+                <div class="control-input">
+                  <select id="selectAutomataMode">
+                    <option value="0">Langton's Ant Colony</option>
+                    <option value="1">Elementary Rule Tapestry</option>
+                    <option value="2">Recursive Moire</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="control-row automata-control" id="automataPrimaryContainer" style="display: none;">
+                <div class="control-info">
+                  <label for="sliderAutomataPrimary" id="labelAutomataPrimary">Primary Control</label>
+                  <p id="helpAutomataPrimary">Adjusts the primary behaviour for the selected automata mode.</p>
+                </div>
+                <div class="control-input">
+                  <div class="range-wrapper">
+                    <input type="range" id="sliderAutomataPrimary" min="0" max="100" step="1" value="50">
+                    <output id="outputAutomataPrimary" class="range-output">50</output>
+                  </div>
+                  <div class="control-meta">
+                    <input type="number" id="numAutomataPrimary" min="0" max="100" step="1" value="50">
+                    <span class="range-bounds"><span>0</span><span>100</span></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="control-row automata-control" id="automataSecondaryContainer" style="display: none;">
+                <div class="control-info">
+                  <label for="sliderAutomataSecondary" id="labelAutomataSecondary">Secondary Control</label>
+                  <p id="helpAutomataSecondary">Fine-tunes the dynamic behaviour for the selected mode.</p>
+                </div>
+                <div class="control-input">
+                  <div class="range-wrapper">
+                    <input type="range" id="sliderAutomataSecondary" min="0" max="100" step="1" value="55">
+                    <output id="outputAutomataSecondary" class="range-output">55</output>
+                  </div>
+                  <div class="control-meta">
+                    <input type="number" id="numAutomataSecondary" min="0" max="100" step="1" value="55">
+                    <span class="range-bounds"><span>0</span><span>100</span></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="control-row automata-control" id="automataResetContainer" style="display: none;">
+                <div class="control-info">
+                  <label for="btnAutomataReset">Pattern</label>
+                  <p>Reseeds the automata state with a fresh configuration.</p>
+                </div>
+                <div class="control-input">
+                  <button id="btnAutomataReset">Reseed</button>
+                </div>
+              </div>
+
+              <h3>Visual Effects</h3>
+
+              <div class="control-row" id="fadeContainer">
+                <div class="control-info">
+                  <label for="sliderFade" id="labelFade">Fade Amount</label>
+                  <p id="helpFade">Controls how aggressively trails fade in non-GoL animations.</p>
+                </div>
+                <div class="control-input">
+                  <div class="range-wrapper">
+                    <input type="range" id="sliderFade" min="0" max="200" value="20">
+                    <output id="outputFade" class="range-output">20</output>
+                  </div>
+                  <div class="control-meta">
+                    <input type="number" id="numFade" min="0" max="200" value="20">
+                    <span class="range-bounds"><span>0</span><span>200</span></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="control-row" id="tailContainer">
+                <div class="control-info">
+                  <label for="sliderTail" id="labelTail">Fade Smoothness</label>
+                  <p id="helpTail">Higher values ease cells in and out; lower values snap changes on and off.</p>
+                </div>
+                <div class="control-input">
+                  <div class="range-wrapper">
+                    <input type="range" id="sliderTail" min="0" max="20" value="3">
+                    <output id="outputTail" class="range-output">3</output>
+                  </div>
+                  <div class="control-meta">
+                    <input type="number" id="numTail" min="0" max="20" value="3">
+                    <span class="range-bounds"><span>0</span><span>20</span></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="control-row" id="spawnContainer">
+                <div class="control-info">
+                  <label for="sliderSpawn" id="labelSpawn">Spawn Rate</label>
+                  <p>Controls how frequently new elements appear in supported animations.</p>
+                </div>
+                <div class="control-input">
+                  <div class="range-wrapper">
+                    <input type="range" id="sliderSpawn" min="0" max="100" value="20">
+                    <output id="outputSpawn" class="range-output">20%</output>
+                  </div>
+                  <div class="control-meta">
+                    <input type="number" id="numSpawn" min="0" max="100" value="20">
+                    <span class="range-bounds"><span>0</span><span>100</span></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="control-row" id="maxFlakesContainer">
+                <div class="control-info">
+                  <label for="sliderMaxFlakes" id="labelMaxFlakes">Max Objects</label>
+                  <p>Sets the maximum number of concurrent particles for animations that spawn objects.</p>
+                </div>
+                <div class="control-input">
+                  <div class="range-wrapper">
+                    <input type="range" id="sliderMaxFlakes" min="1" max="100" value="20">
+                    <output id="outputMaxFlakes" class="range-output">20</output>
+                  </div>
+                  <div class="control-meta">
+                    <input type="number" id="numMaxFlakes" min="1" max="100" value="20">
+                    <span class="range-bounds"><span>1</span><span>100</span></span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="control-section">
+              <h2>Presets</h2>
+              <p class="section-note">Presets capture the current animation, palette, panel layout, and animation-specific settings.</p>
+
+              <div class="control-row">
+                <div class="control-info">
+                  <label for="presetSelect">Saved Presets</label>
+                  <p>Load or delete previously stored configurations.</p>
+                </div>
+                <div class="control-input preset-controls">
+                  <select id="presetSelect"></select>
+                  <div class="control-actions">
+                    <button id="btnLoadPreset">Load</button>
+                    <button id="btnDeletePreset" class="danger">Delete</button>
+                  </div>
+                  <p id="presetStatus" class="control-status" hidden></p>
+                </div>
+              </div>
+
+              <div class="control-row">
+                <div class="control-info">
+                  <label for="inputPresetName">Save As</label>
+                  <p>Store the current configuration under a custom name.</p>
+                </div>
+                <div class="control-input preset-save">
+                  <input type="text" id="inputPresetName" maxlength="24" placeholder="My Preset">
+                  <button id="btnSavePreset">Save</button>
+                </div>
+              </div>
+            </section>
           </div>
-          
-          <!-- Right column - Panel configuration and logs -->
-          <div class="settings-card">
+<!-- Right column - Panel configuration and logs -->
+          <div class="settings-card panel-settings">
             <h2>Panel Configuration</h2>
-            
-            <!-- Panel Count -->
-            <div class="slider-container">
-              <label for="sliderPanelCount">Panel Count:</label>
-              <input type="range" id="sliderPanelCount" min="1" max="8" value="2">
-              <input type="number" id="numPanelCount" min="1" max="8" value="2">
-              <button id="btnSetPanelCount">Apply</button>
-              <span class="slider-min">1</span>
-              <span class="slider-max">8</span>
-            </div>
-            
-            <!-- Panel Order -->
-            <div class="dropdown-container">
-              <label for="panelOrder">Panel Order:</label>
-              <select id="panelOrder">
-                <option value="left">Left to Right</option>
-                <option value="right">Right to Left</option>
-              </select>
-              <button id="btnPanelOrder">Apply</button>
-            </div>
-            
-            <!-- Identify Panels Button -->
-            <div class="dropdown-container">
-              <label>Identify:</label>
-              <button id="btnIdentifyPanels">Identify Panels</button>
-            </div>
-            
-            <h3>Panel Rotation</h3>
-            <div class="panel-rotation-controls">
-              <div class="rotation-control">
-                <label for="rotatePanel1">Panel 1:</label>
-                <div class="control-group">
-                  <select id="rotatePanel1">
-                    <option value="0">0°</option>
-                    <option value="90" selected>90°</option>
-                    <option value="180">180°</option>
-                    <option value="270">270°</option>
-                  </select>
-                  <button id="btnRotatePanel1">Apply</button>
+            <section class="control-subsection">
+              <div class="control-row">
+                <div class="control-info">
+                  <label for="sliderPanelCount">Panel Count</label>
+                  <p>Define how many 16×16 panels are connected end-to-end.</p>
+                </div>
+                <div class="control-input">
+                  <div class="range-wrapper">
+                    <input type="range" id="sliderPanelCount" min="1" max="8" value="2">
+                    <output id="outputPanelCount" class="range-output">2</output>
+                  </div>
+                  <div class="control-meta">
+                    <input type="number" id="numPanelCount" min="1" max="8" value="2">
+                    <button id="btnSetPanelCount">Apply</button>
+                    <span class="range-bounds"><span>1</span><span>8</span></span>
+                  </div>
                 </div>
               </div>
-              
-              <div class="rotation-control">
-                <label for="rotatePanel2">Panel 2:</label>
-                <div class="control-group">
-                  <select id="rotatePanel2">
-                    <option value="0">0°</option>
-                    <option value="90" selected>90°</option>
-                    <option value="180">180°</option>
-                    <option value="270">270°</option>
-                  </select>
-                  <button id="btnRotatePanel2">Apply</button>
+
+              <div class="control-row">
+                <div class="control-info">
+                  <label for="panelOrder">Panel Order</label>
+                  <p>Match the wiring direction of the physical chain.</p>
+                </div>
+                <div class="control-input">
+                  <div class="control-inline">
+                    <select id="panelOrder">
+                      <option value="left">Left to Right</option>
+                      <option value="right">Right to Left</option>
+                    </select>
+                    <button id="btnPanelOrder">Apply</button>
+                  </div>
+                  <button id="btnIdentifyPanels" class="secondary">Identify Panels</button>
                 </div>
               </div>
-            </div>
+
+              <div class="control-row">
+                <div class="control-info">
+                  <label>Rotation Per Panel</label>
+                  <p>Rotate each panel so displayed content aligns with the installed orientation.</p>
+                </div>
+                <div class="control-input rotation-grid">
+                  <div class="rotation-line">
+                    <span>Panel 1</span>
+                    <div class="control-inline">
+                      <select id="rotatePanel1">
+                        <option value="0">0 deg</option>
+                        <option value="90">90 deg</option>
+                        <option value="180">180 deg</option>
+                        <option value="270" selected>270 deg</option>
+                      </select>
+                      <button id="btnRotatePanel1">Apply</button>
+                    </div>
+                  </div>
+                  <div class="rotation-line">
+                    <span>Panel 2</span>
+                    <div class="control-inline">
+                      <select id="rotatePanel2">
+                        <option value="0">0 deg</option>
+                        <option value="90">90 deg</option>
+                        <option value="180">180 deg</option>
+                        <option value="270" selected>270 deg</option>
+                      </select>
+                      <button id="btnRotatePanel2">Apply</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div class="settings-card preview-card">
+            <h2>Panel Preview</h2>
+            <canvas id="panelPreview" width="320" height="160"></canvas>
+            <p id="previewFallback" class="preview-fallback" hidden>Canvas preview not available in this browser. Use the hardware display for live feedback.</p>
+            <p class="preview-note">Illustrates sweep cursors, automata and trails using your current settings. Connect firmware streaming for a live capture.</p>
           </div>
         </div>
         
@@ -196,3 +505,10 @@
     <script src="/script.js"></script>
   </body>
 </html>
+
+
+
+
+
+
+

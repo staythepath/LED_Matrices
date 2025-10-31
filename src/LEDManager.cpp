@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cmath>
+#include <cctype>
 #include "LogManager.h"
 
 // Include Animation header files
@@ -15,11 +16,12 @@
 #include "animations/RainbowWaveAnimation.h"
 #include "animations/FireworkAnimation.h"
 #include "animations/GameOfLifeAnimation.h"
+#include "animations/EscherAutomataAnimation.h"
 
 // Animations
 #include "animations/BaseAnimation.h"
 
-// Up to 8 panels of 16×16
+// Up to 8 panels of 16x16
 CRGB leds[MAX_LEDS];
 
 LEDManager::LEDManager()
@@ -34,9 +36,9 @@ LEDManager::LEDManager()
     , tailLength(3)
     , fadeAmount(39)
     , panelOrder(1)  // Start with right panel first instead of left
-    , rotationAngle1(0)
-    , rotationAngle2(0)
-    , rotationAngle3(0)
+    , rotationAngle1(270)
+    , rotationAngle2(270)
+    , rotationAngle3(270)
     , ledUpdateInterval(38)
     , lastLedUpdate(0)
     , _isInitializing(true)
@@ -44,6 +46,9 @@ LEDManager::LEDManager()
     , _columnSkip(6) // Midpoint sweep speed by default
     , _golHighlightWidth(2)
     , _golHighlightColor(CRGB::White)
+    , _automataMode(0)
+    , _automataPrimary(50)
+    , _automataSecondary(55)
     , _prefsReady(false)
 {
     createPalettes();
@@ -52,6 +57,19 @@ LEDManager::LEDManager()
     _animationNames.push_back("RainbowWave"); // index=2
     _animationNames.push_back("Firework");    // index=3
     _animationNames.push_back("GameOfLife");  // index=4
+    _animationNames.push_back("StrangeLoop"); // index=5
+
+    _golUpdateMode = 0;
+    _golNeighborMode = 1; // default to 8-connected
+    _golWrapEdges = true;
+    _golClusterColorMode = 0;
+    _golBirthMask = (1 << 3);
+    _golSurviveMask = (1 << 2) | (1 << 3);
+    _golRuleString = "B3/S23";
+    _golSeedDensity = 33;
+    _golMutationChance = 0;
+    _golUniformBirths = false;
+    _golBirthColor = CRGB::White;
 }
 
 void LEDManager::begin() {
@@ -198,26 +216,66 @@ void LEDManager::configureCurrentAnimation() {
     } 
     else if (_currentAnimation->isGameOfLife()) {
         GameOfLifeAnimation* anim = static_cast<GameOfLifeAnimation*>(_currentAnimation);
-        // Use fixed 5ms update interval for maximum speed (reduced from 15ms)
-        anim->setUpdateInterval(5);
-        
-        // Map speed percentage (0-100) to multiplier (0.1-30.0)
-        // This now directly affects animation speed without changing column skip behavior
-        float speedPercent = (float)_speed / 100.0f; // 0.0-1.0 range
-        
-        // Using a more aggressive exponential curve for speed multiplier
-        // This gives a wider range of speeds from very slow to extremely fast
-        float multiplier = 0.1f + (29.9f * speedPercent * speedPercent); // 0.1 to 30.0 range
-        
-        // Set both controls separately:
-        // 1. Speed multiplier - controls how fast the animation runs
-        anim->setSpeedMultiplier(multiplier);
-        
-        // 2. Column skip - controls how many columns are skipped during animation
-        anim->setColumnSkip(_columnSkip);
-        
-        Serial.printf("Game of Life configured with speed=%.2f, column skip=%d\n", 
-                     multiplier, _columnSkip);
+        anim->setAllPalettes(&ALL_PALETTES);
+        anim->setCurrentPalette(currentPalette);
+        anim->setRotationAngle1(rotationAngle1);
+        anim->setRotationAngle2(rotationAngle2);
+        anim->setRotationAngle3(rotationAngle3);
+        anim->setPanelOrder(panelOrder);
+        anim->setWipeBarBrightness(fadeAmount);
+        anim->setFadeStepControl(static_cast<uint8_t>(tailLength));
+        anim->setHighlightWidth(_golHighlightWidth);
+        anim->setHighlightColor(_golHighlightColor);
+        anim->setUniformBirthColorEnabled(_golUniformBirths);
+        anim->setUniformBirthColor(_golBirthColor);
+        const auto mode = static_cast<GameOfLifeAnimation::UpdateMode>(_golUpdateMode);
+        anim->setUpdateMode(mode);
+        anim->setNeighborMode(static_cast<GameOfLifeAnimation::NeighborMode>(_golNeighborMode));
+        anim->setWrapEdges(_golWrapEdges);
+        anim->setRules(_golBirthMask, _golSurviveMask);
+        anim->setClusterColorMode(static_cast<GameOfLifeAnimation::ClusterColorMode>(_golClusterColorMode));
+        anim->setSeedDensity(_golSeedDensity);
+        anim->setMutationChance(_golMutationChance);
+        anim->setColorPulseMode(_currentAnimationIndex == 5);
+
+        unsigned long baseInterval = ledUpdateInterval;
+        if (baseInterval < 1UL) {
+            baseInterval = 1UL;
+        }
+
+        const int minSetting = 1;
+        const int maxSetting = 20;
+        int sweepSetting = constrain(_columnSkip, minSetting, maxSetting);
+        anim->setColumnSkip(sweepSetting);
+        anim->setUpdateInterval(baseInterval);
+
+        const float speedScale = 0.5f + (static_cast<float>(_speed) / 100.0f) * 29.5f;
+        anim->setSpeedMultiplier(speedScale);
+
+        Serial.printf("Game of Life configured mode=%d baseInterval=%lu speedScale=%.2f sweepSetting=%d\n",
+                      static_cast<int>(mode), baseInterval, speedScale, sweepSetting);
+    }
+    else if (_currentAnimation->isAutomata()) {
+        auto* anim = static_cast<EscherAutomataAnimation*>(_currentAnimation);
+        anim->setAllPalettes(&ALL_PALETTES);
+        anim->setCurrentPalette(currentPalette);
+        anim->setUsePalette(true);
+        anim->setPanelOrder(panelOrder);
+        anim->setRotationAngle1(rotationAngle1);
+        anim->setRotationAngle2(rotationAngle2);
+        anim->setRotationAngle3(rotationAngle3);
+        anim->setMode(static_cast<EscherAutomataAnimation::Mode>(_automataMode));
+        anim->setPrimaryControl(_automataPrimary);
+        anim->setSecondaryControl(_automataSecondary);
+
+        unsigned long interval = ledUpdateInterval;
+        if (interval < 12UL) {
+            interval = 12UL;
+        }
+        anim->setUpdateInterval(interval);
+
+        Serial.printf("StrangeLoop configured mode=%u primary=%u secondary=%u interval=%lu\n",
+                      _automataMode, _automataPrimary, _automataSecondary, interval);
     }
     else if (_currentAnimation->isFirework()) {
         FireworkAnimation* anim = static_cast<FireworkAnimation*>(_currentAnimation);
@@ -295,15 +353,22 @@ void LEDManager::configureCurrentAnimation() {
         anim->setRotationAngle2(rotationAngle2);
         anim->setRotationAngle3(rotationAngle3);
         anim->setPanelOrder(panelOrder);
-        // Pass the actual interval in milliseconds directly to ensure proper speed control
-        anim->setUpdateInterval(ledUpdateInterval);
         anim->setAllPalettes(&ALL_PALETTES);
         anim->setCurrentPalette(currentPalette);
         anim->setWipeBarBrightness(fadeAmount);
-        anim->setColumnSkip(_columnSkip);
         anim->setFadeStepControl(static_cast<uint8_t>(tailLength));
         anim->setHighlightWidth(_golHighlightWidth);
         anim->setHighlightColor(_golHighlightColor);
+        anim->setUniformBirthColorEnabled(_golUniformBirths);
+        anim->setUniformBirthColor(_golBirthColor);
+        anim->setColumnSkip(_columnSkip);
+        anim->setUpdateMode(static_cast<GameOfLifeAnimation::UpdateMode>(_golUpdateMode));
+        anim->setNeighborMode(static_cast<GameOfLifeAnimation::NeighborMode>(_golNeighborMode));
+        anim->setWrapEdges(_golWrapEdges);
+        anim->setRules(_golBirthMask, _golSurviveMask);
+        anim->setClusterColorMode(static_cast<GameOfLifeAnimation::ClusterColorMode>(_golClusterColorMode));
+        anim->setSeedDensity(_golSeedDensity);
+        anim->setMutationChance(_golMutationChance);
     }
 }
 
@@ -351,14 +416,17 @@ void LEDManager::setAnimation(int index) {
             case 3: // Firework
                 _currentAnimation = new FireworkAnimation(_numLeds, _brightness, _panelCount);
                 break;
-            case 4: // GameOfLife
-                _currentAnimation = new GameOfLifeAnimation(_numLeds, _brightness, _panelCount);
-                break;
-            default:
-                systemError("Unknown animation index: " + String(index) + ", falling back to Traffic");
-                _currentAnimation = new TrafficAnimation(_numLeds, _brightness, _panelCount);
-                _currentAnimationIndex = 0;
-        }
+        case 4: // GameOfLife
+            _currentAnimation = new GameOfLifeAnimation(_numLeds, _brightness, _panelCount);
+            break;
+        case 5: // StrangeLoop / automata showcase
+            _currentAnimation = new EscherAutomataAnimation(_numLeds, _brightness, _panelCount);
+            break;
+        default:
+            systemError("Unknown animation index: " + String(index) + ", falling back to Traffic");
+            _currentAnimation = new TrafficAnimation(_numLeds, _brightness, _panelCount);
+            _currentAnimationIndex = 0;
+    }
     } catch (const std::exception& e) {
         // Handle memory allocation failures
         systemError("Error creating animation '" + _animationNames[index] + "': " + String(e.what()));
@@ -630,6 +698,7 @@ void LEDManager::drawLargeDigit(int baseIndex, int digit){
 void LEDManager::createPalettes() {
     ALL_PALETTES = {
         { CRGB(0,128,255), CRGB(255,128,0), CRGB(0,200,60), CRGB(64,0,128), CRGB(255,255,64) },
+        { CRGB(18,110,246), CRGB(255,110,32), CRGB(240,45,45), CRGB(255,188,80), CRGB(0,190,120) },
         { CRGB(255,100,0), CRGB(255,0,102), CRGB(128,0,128), CRGB(0,255,128), CRGB(255,255,128) },
         { CRGB(0,255,255), CRGB(255,0,255), CRGB(255,255,0), CRGB(0,255,0), CRGB(255,127,0) },
         { CRGB(0,0,128), CRGB(75,0,130), CRGB(128,0,128), CRGB(0,128,128), CRGB(255,0,128) },
@@ -641,8 +710,8 @@ void LEDManager::createPalettes() {
         { CRGB(139,0,0), CRGB(218,165,32), CRGB(255,0,255), CRGB(75,0,130), CRGB(0,100,140) }
     };
 
-    PALETTE_NAMES = {
-        "BOG",
+    PALETTE_NAMES = { "BOG",
+        "BOGR",
         "Cool Sunset",
         "Neon Tropical",
         "Galaxy",
@@ -915,7 +984,7 @@ unsigned long LEDManager::getUpdateSpeed() const {
 // Game of Life column skip getter/setter
 void LEDManager::setColumnSkip(int skip) {
     if (skip < 1) skip = 1;
-    if (skip > 10) skip = 10;
+    if (skip > 20) skip = 20;
     
     _columnSkip = skip;
     LogManager::getInstance().debug("Game of Life sweep speed set to " + String(_columnSkip));
@@ -924,6 +993,8 @@ void LEDManager::setColumnSkip(int skip) {
     if (_currentAnimation && _currentAnimationIndex == 4) { // 4 is GameOfLife
         GameOfLifeAnimation* anim = static_cast<GameOfLifeAnimation*>(_currentAnimation);
         anim->setColumnSkip(_columnSkip);
+        anim->setUniformBirthColorEnabled(_golUniformBirths);
+        anim->setUniformBirthColor(_golBirthColor);
     }
 }
 
@@ -983,6 +1054,269 @@ String LEDManager::getGoLHighlightColorHex() const {
     return String(buffer);
 }
 
+void LEDManager::setGoLUniformBirths(bool enabled) {
+    _golUniformBirths = enabled;
+    LogManager::getInstance().info(String("Game of Life uniform births ") + (enabled ? "enabled" : "disabled"));
+    if (_currentAnimation && _currentAnimationIndex == 4) {
+        auto* anim = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        anim->setUniformBirthColorEnabled(_golUniformBirths);
+    }
+}
+
+bool LEDManager::getGoLUniformBirths() const {
+    return _golUniformBirths;
+}
+
+void LEDManager::setGoLBirthColorRGB(uint8_t r, uint8_t g, uint8_t b) {
+    _golBirthColor = CRGB(r, g, b);
+    char buffer[8];
+    snprintf(buffer, sizeof(buffer), "#%02X%02X%02X", _golBirthColor.r, _golBirthColor.g, _golBirthColor.b);
+    LogManager::getInstance().info(String("Game of Life birth color set to ") + buffer);
+    if (_currentAnimation && _currentAnimationIndex == 4) {
+        auto* anim = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        anim->setUniformBirthColor(_golBirthColor);
+    }
+}
+
+bool LEDManager::setGoLBirthColorHex(const String& hex) {
+    String cleaned = hex;
+    cleaned.trim();
+    if (cleaned.startsWith("#")) {
+        cleaned.remove(0, 1);
+    }
+    if (cleaned.length() != 6) {
+        return false;
+    }
+
+    char* endPtr = nullptr;
+    long value = strtol(cleaned.c_str(), &endPtr, 16);
+    if (endPtr == cleaned.c_str() || value < 0 || value > 0xFFFFFF) {
+        return false;
+    }
+
+    uint8_t r = static_cast<uint8_t>((value >> 16) & 0xFF);
+    uint8_t g = static_cast<uint8_t>((value >> 8) & 0xFF);
+    uint8_t b = static_cast<uint8_t>(value & 0xFF);
+    setGoLBirthColorRGB(r, g, b);
+    return true;
+}
+
+String LEDManager::getGoLBirthColorHex() const {
+    char buffer[8];
+    snprintf(buffer, sizeof(buffer), "#%02X%02X%02X", _golBirthColor.r, _golBirthColor.g, _golBirthColor.b);
+    return String(buffer);
+}
+
+void LEDManager::setAutomataMode(uint8_t mode) {
+    if (mode > 2) {
+        mode = 2;
+    }
+    _automataMode = mode;
+    LogManager::getInstance().info("StrangeLoop mode set to " + String(_automataMode));
+    if (_currentAnimation && _currentAnimation->isAutomata()) {
+        auto* anim = static_cast<EscherAutomataAnimation*>(_currentAnimation);
+        anim->setMode(static_cast<EscherAutomataAnimation::Mode>(_automataMode));
+        configureCurrentAnimation();
+    }
+}
+
+uint8_t LEDManager::getAutomataMode() const {
+    return _automataMode;
+}
+
+void LEDManager::setAutomataPrimary(uint8_t value) {
+    if (value > 100) {
+        value = 100;
+    }
+    _automataPrimary = value;
+    if (_currentAnimation && _currentAnimation->isAutomata()) {
+        auto* anim = static_cast<EscherAutomataAnimation*>(_currentAnimation);
+        anim->setPrimaryControl(_automataPrimary);
+    }
+}
+
+uint8_t LEDManager::getAutomataPrimary() const {
+    return _automataPrimary;
+}
+
+void LEDManager::setAutomataSecondary(uint8_t value) {
+    if (value > 100) {
+        value = 100;
+    }
+    _automataSecondary = value;
+    if (_currentAnimation && _currentAnimation->isAutomata()) {
+        auto* anim = static_cast<EscherAutomataAnimation*>(_currentAnimation);
+        anim->setSecondaryControl(_automataSecondary);
+    }
+}
+
+uint8_t LEDManager::getAutomataSecondary() const {
+    return _automataSecondary;
+}
+
+void LEDManager::resetAutomataPattern() {
+    if (_currentAnimation && _currentAnimation->isAutomata()) {
+        auto* anim = static_cast<EscherAutomataAnimation*>(_currentAnimation);
+        anim->begin();
+        configureCurrentAnimation();
+    }
+}
+
+void LEDManager::setGoLUpdateMode(uint8_t mode) {
+    if (mode > 2) mode = 0;
+    _golUpdateMode = mode;
+    if (_currentAnimation && _currentAnimationIndex == 4) {
+        auto* anim = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        anim->setUpdateMode(static_cast<GameOfLifeAnimation::UpdateMode>(_golUpdateMode));
+    }
+}
+
+uint8_t LEDManager::getGoLUpdateMode() const {
+    return _golUpdateMode;
+}
+
+void LEDManager::setGoLNeighborMode(uint8_t mode) {
+    if (mode > 1) mode = 1;
+    _golNeighborMode = mode;
+    if (_currentAnimation && _currentAnimationIndex == 4) {
+        auto* anim = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        anim->setNeighborMode(static_cast<GameOfLifeAnimation::NeighborMode>(_golNeighborMode));
+    }
+}
+
+uint8_t LEDManager::getGoLNeighborMode() const {
+    return _golNeighborMode;
+}
+
+void LEDManager::setGoLWrapEdges(bool wrap) {
+    _golWrapEdges = wrap;
+    if (_currentAnimation && _currentAnimationIndex == 4) {
+        auto* anim = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        anim->setWrapEdges(_golWrapEdges);
+    }
+}
+
+bool LEDManager::getGoLWrapEdges() const {
+    return _golWrapEdges;
+}
+
+static bool parseRulePart(const String& part, char prefix, uint16_t& mask) {
+    if (part.length() == 0) return false;
+    int idx = 0;
+    if (std::toupper(static_cast<unsigned char>(part[idx])) == prefix) {
+        ++idx;
+    }
+    mask = 0;
+    for (; idx < part.length(); ++idx) {
+        char c = part[idx];
+        if (!std::isdigit(static_cast<unsigned char>(c))) return false;
+        int value = c - '0';
+        if (value < 0 || value > 8) return false;
+        mask |= (1 << value);
+    }
+    return true;
+}
+
+bool LEDManager::setGoLRules(const String& rule) {
+    String cleaned = rule;
+    cleaned.trim();
+    cleaned.toUpperCase();
+    cleaned.replace(" ", "");
+    if (cleaned.isEmpty()) {
+        return false;
+    }
+
+    int slash = cleaned.indexOf('/');
+    String birthPart;
+    String survivePart;
+    if (slash >= 0) {
+        birthPart = cleaned.substring(0, slash);
+        survivePart = cleaned.substring(slash + 1);
+    } else {
+        birthPart = cleaned;
+        survivePart = "";
+    }
+
+    uint16_t birthMask = _golBirthMask;
+    uint16_t surviveMask = _golSurviveMask;
+
+    if (!birthPart.isEmpty()) {
+        if (!parseRulePart(birthPart, 'B', birthMask)) return false;
+    }
+    if (!survivePart.isEmpty()) {
+        if (!parseRulePart(survivePart, 'S', surviveMask)) return false;
+    }
+
+    _golBirthMask = birthMask;
+    _golSurviveMask = surviveMask;
+    _golRuleString = "B";
+    for (int i = 0; i <= 8; ++i) {
+        if (birthMask & (1 << i)) {
+            _golRuleString += String(i);
+        }
+    }
+    _golRuleString += "/S";
+    for (int i = 0; i <= 8; ++i) {
+        if (surviveMask & (1 << i)) {
+            _golRuleString += String(i);
+        }
+    }
+
+    LogManager::getInstance().info("Game of Life rules set to " + _golRuleString);
+
+    if (_currentAnimation && _currentAnimationIndex == 4) {
+        auto* anim = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        anim->setRules(_golBirthMask, _golSurviveMask);
+    }
+    return true;
+}
+
+String LEDManager::getGoLRules() const {
+    return _golRuleString;
+}
+
+void LEDManager::setGoLClusterColorMode(uint8_t mode) {
+    if (mode > 4) mode = 0;
+    _golClusterColorMode = mode;
+    if (_currentAnimation && _currentAnimationIndex == 4) {
+        auto* anim = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        anim->setClusterColorMode(static_cast<GameOfLifeAnimation::ClusterColorMode>(_golClusterColorMode));
+    }
+}
+
+uint8_t LEDManager::getGoLClusterColorMode() const {
+    return _golClusterColorMode;
+}
+
+void LEDManager::setGoLSeedDensity(uint8_t percent) {
+    if (percent < 1) percent = 1;
+    if (percent > 100) percent = 100;
+    _golSeedDensity = percent;
+    LogManager::getInstance().info("Game of Life starting fill set to " + String(_golSeedDensity) + "%");
+    if (_currentAnimation && _currentAnimationIndex == 4) {
+        auto* anim = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        anim->setSeedDensity(_golSeedDensity);
+    }
+}
+
+uint8_t LEDManager::getGoLSeedDensity() const {
+    return _golSeedDensity;
+}
+
+void LEDManager::setGoLMutationChance(uint8_t percent) {
+    if (percent > 100) percent = 100;
+    _golMutationChance = percent;
+    LogManager::getInstance().info("Game of Life mutation nudges set to " + String(_golMutationChance) + "%");
+    if (_currentAnimation && _currentAnimationIndex == 4) {
+        auto* anim = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        anim->setMutationChance(_golMutationChance);
+    }
+}
+
+uint8_t LEDManager::getGoLMutationChance() const {
+    return _golMutationChance;
+}
+
 void LEDManager::setSpeed(int speed) {
     if (speed < 0 || speed > 100) return;
     
@@ -990,19 +1324,20 @@ void LEDManager::setSpeed(int speed) {
     speed = constrain(speed, 0, 100);
     _speed = speed;
 
-    const float minInterval = 1.0f;     // fastest allowed update (ms)
-    const float maxInterval = 6000.0f;  // allow much slower sweeps
-    const float decayFactor = 0.030f;   // smoother curve across range
-
-    float interval = maxInterval * expf(-decayFactor * speed);
+    const float minInterval = 0.3f;     // fastest allowed update (ms)
+    const float maxInterval = 9000.0f;  // allow very slow sweeps
+    const float percent = static_cast<float>(_speed) / 100.0f;
+    const float ratio = minInterval / maxInterval;
+  
+    float interval = maxInterval * powf(ratio, percent);
     interval = constrain(interval, minInterval, maxInterval);
-
+  
     ledUpdateInterval = static_cast<unsigned long>(interval);
     if (ledUpdateInterval < 1) {
         ledUpdateInterval = 1;
     }
     
-    Serial.printf("Speed: %d%%, Interval: %.1fms\n", speed, interval);
+    Serial.printf("Speed: %d%%, Interval: %.2fms\n", speed, interval);
     
     configureCurrentAnimation();
 }
@@ -1019,3 +1354,336 @@ String LEDManager::getAnimationName(int animIndex) const {
     }
     return "Unknown";
 }
+
+bool LEDManager::ensurePrefsReady() {
+    if (_prefsReady) {
+        return true;
+    }
+    _prefsReady = _prefs.begin("ledmgr", false);
+    if (!_prefsReady) {
+        LogManager::getInstance().error("Failed to open preferences namespace 'ledmgr'");
+    }
+    return _prefsReady;
+}
+
+String LEDManager::sanitizePresetName(const String& name) const {
+    String trimmed = name;
+    trimmed.trim();
+    String sanitized;
+    sanitized.reserve(trimmed.length());
+    for (size_t i = 0; i < trimmed.length(); ++i) {
+        char c = trimmed.charAt(i);
+        if (std::isalnum(static_cast<unsigned char>(c)) ||
+            c == ' ' || c == '_' || c == '-') {
+            sanitized += c;
+        }
+    }
+    sanitized.trim();
+    if (sanitized.length() > 24) {
+        sanitized = sanitized.substring(0, 24);
+    }
+    // Collapse consecutive spaces
+    while (sanitized.indexOf("  ") != -1) {
+        sanitized.replace("  ", " ");
+    }
+    return sanitized;
+}
+
+std::vector<String> LEDManager::loadPresetNameList() {
+    std::vector<String> names;
+    if (!ensurePrefsReady()) {
+        return names;
+    }
+    String stored = _prefs.getString("presetNames", "");
+    stored.trim();
+    if (stored.isEmpty()) {
+        return names;
+    }
+    int start = 0;
+    while (start < stored.length()) {
+        int sep = stored.indexOf(',', start);
+        if (sep < 0) {
+            sep = stored.length();
+        }
+        String entry = stored.substring(start, sep);
+        entry.trim();
+        if (!entry.isEmpty()) {
+            names.push_back(entry);
+        }
+        start = sep + 1;
+    }
+    return names;
+}
+
+void LEDManager::storePresetNameList(const std::vector<String>& names) {
+    if (!ensurePrefsReady()) {
+        return;
+    }
+    String combined;
+    for (size_t i = 0; i < names.size(); ++i) {
+        combined += names[i];
+        if (i + 1 < names.size()) {
+            combined += ",";
+        }
+    }
+    _prefs.putString("presetNames", combined);
+}
+
+LEDManager::PresetSnapshot LEDManager::captureCurrentPreset() const {
+    PresetSnapshot snapshot;
+    snapshot.panelCount = _panelCount;
+    snapshot.animationIndex = _currentAnimationIndex;
+    snapshot.paletteIndex = currentPalette;
+    snapshot.brightness = _brightness;
+    snapshot.fadeAmount = fadeAmount;
+    snapshot.tailLength = tailLength;
+    snapshot.speed = _speed;
+    snapshot.spawnRate = spawnRate;
+    snapshot.maxFlakes = maxFlakes;
+    snapshot.columnSkip = _columnSkip;
+    snapshot.highlightWidth = _golHighlightWidth;
+    snapshot.highlightColorHex = getGoLHighlightColorHex();
+    snapshot.uniformBirths = _golUniformBirths;
+    snapshot.birthColorHex = getGoLBirthColorHex();
+    snapshot.golUpdateMode = _golUpdateMode;
+    snapshot.golNeighborMode = _golNeighborMode;
+    snapshot.golWrapEdges = _golWrapEdges;
+    snapshot.golClusterColorMode = _golClusterColorMode;
+    snapshot.golSeedDensity = _golSeedDensity;
+    snapshot.golMutationChance = _golMutationChance;
+    snapshot.golRuleString = _golRuleString;
+    snapshot.panelOrder = panelOrder;
+    snapshot.rotation1 = rotationAngle1;
+    snapshot.rotation2 = rotationAngle2;
+    snapshot.rotation3 = rotationAngle3;
+    snapshot.automataMode = _automataMode;
+    snapshot.automataPrimary = _automataPrimary;
+    snapshot.automataSecondary = _automataSecondary;
+    return snapshot;
+}
+
+String LEDManager::serializePreset(const PresetSnapshot& snapshot) const {
+    String data;
+    data.reserve(256);
+    data += "panelCount=" + String(snapshot.panelCount) + "\n";
+    data += "animation=" + String(snapshot.animationIndex) + "\n";
+    data += "palette=" + String(snapshot.paletteIndex) + "\n";
+    data += "brightness=" + String(snapshot.brightness) + "\n";
+    data += "fade=" + String(snapshot.fadeAmount) + "\n";
+    data += "tail=" + String(snapshot.tailLength) + "\n";
+    data += "speed=" + String(snapshot.speed) + "\n";
+    data += "spawnRate=" + String(snapshot.spawnRate, 4) + "\n";
+    data += "maxFlakes=" + String(snapshot.maxFlakes) + "\n";
+    data += "columnSkip=" + String(snapshot.columnSkip) + "\n";
+    data += "highlightWidth=" + String(snapshot.highlightWidth) + "\n";
+    data += "highlightColor=" + snapshot.highlightColorHex + "\n";
+    data += "uniformBirths=" + String(snapshot.uniformBirths ? 1 : 0) + "\n";
+    data += "uniformBirthColor=" + snapshot.birthColorHex + "\n";
+    data += "golUpdateMode=" + String(snapshot.golUpdateMode) + "\n";
+    data += "golNeighborMode=" + String(snapshot.golNeighborMode) + "\n";
+    data += "golWrapEdges=" + String(snapshot.golWrapEdges ? 1 : 0) + "\n";
+    data += "golClusterMode=" + String(snapshot.golClusterColorMode) + "\n";
+    data += "golSeedDensity=" + String(snapshot.golSeedDensity) + "\n";
+    data += "golMutationChance=" + String(snapshot.golMutationChance) + "\n";
+   data += "golRule=" + snapshot.golRuleString + "\n";
+   data += "panelOrder=" + String(snapshot.panelOrder) + "\n";
+   data += "rotation1=" + String(snapshot.rotation1) + "\n";
+   data += "rotation2=" + String(snapshot.rotation2) + "\n";
+   data += "rotation3=" + String(snapshot.rotation3) + "\n";
+    data += "automataMode=" + String(snapshot.automataMode) + "\n";
+    data += "automataPrimary=" + String(snapshot.automataPrimary) + "\n";
+    data += "automataSecondary=" + String(snapshot.automataSecondary) + "\n";
+    return data;
+}
+
+static bool parseBoolValue(const String& value, bool defaultValue) {
+    if (value.equalsIgnoreCase("true") || value == "1") return true;
+    if (value.equalsIgnoreCase("false") || value == "0") return false;
+    return defaultValue;
+}
+
+bool LEDManager::deserializePreset(const String& payload, PresetSnapshot& snapshot) const {
+    PresetSnapshot parsed = captureCurrentPreset();
+    int start = 0;
+    while (start < payload.length()) {
+        int end = payload.indexOf('\n', start);
+        if (end < 0) end = payload.length();
+        String line = payload.substring(start, end);
+        start = end + 1;
+        line.trim();
+        if (line.isEmpty()) continue;
+        int eq = line.indexOf('=');
+        if (eq < 0) continue;
+        String key = line.substring(0, eq);
+        String value = line.substring(eq + 1);
+        key.trim();
+        value.trim();
+
+        if (key.equalsIgnoreCase("panelCount")) parsed.panelCount = value.toInt();
+        else if (key.equalsIgnoreCase("animation")) parsed.animationIndex = value.toInt();
+        else if (key.equalsIgnoreCase("palette")) parsed.paletteIndex = value.toInt();
+        else if (key.equalsIgnoreCase("brightness")) parsed.brightness = static_cast<uint8_t>(value.toInt());
+        else if (key.equalsIgnoreCase("fade")) parsed.fadeAmount = static_cast<uint8_t>(value.toInt());
+        else if (key.equalsIgnoreCase("tail")) parsed.tailLength = value.toInt();
+        else if (key.equalsIgnoreCase("speed")) parsed.speed = value.toInt();
+        else if (key.equalsIgnoreCase("spawnRate")) parsed.spawnRate = value.toFloat();
+        else if (key.equalsIgnoreCase("maxFlakes")) parsed.maxFlakes = value.toInt();
+        else if (key.equalsIgnoreCase("columnSkip")) parsed.columnSkip = value.toInt();
+        else if (key.equalsIgnoreCase("highlightWidth")) parsed.highlightWidth = static_cast<uint8_t>(value.toInt());
+        else if (key.equalsIgnoreCase("highlightColor")) parsed.highlightColorHex = value;
+        else if (key.equalsIgnoreCase("uniformBirths")) parsed.uniformBirths = parseBoolValue(value, parsed.uniformBirths);
+        else if (key.equalsIgnoreCase("uniformBirthColor")) parsed.birthColorHex = value;
+        else if (key.equalsIgnoreCase("golUpdateMode")) parsed.golUpdateMode = static_cast<uint8_t>(value.toInt());
+        else if (key.equalsIgnoreCase("golNeighborMode")) parsed.golNeighborMode = static_cast<uint8_t>(value.toInt());
+        else if (key.equalsIgnoreCase("golWrapEdges")) parsed.golWrapEdges = parseBoolValue(value, parsed.golWrapEdges);
+        else if (key.equalsIgnoreCase("golClusterMode")) parsed.golClusterColorMode = static_cast<uint8_t>(value.toInt());
+        else if (key.equalsIgnoreCase("golSeedDensity")) parsed.golSeedDensity = static_cast<uint8_t>(value.toInt());
+        else if (key.equalsIgnoreCase("golMutationChance")) parsed.golMutationChance = static_cast<uint8_t>(value.toInt());
+        else if (key.equalsIgnoreCase("golRule")) parsed.golRuleString = value;
+        else if (key.equalsIgnoreCase("panelOrder")) parsed.panelOrder = value.toInt();
+        else if (key.equalsIgnoreCase("rotation1")) parsed.rotation1 = value.toInt();
+        else if (key.equalsIgnoreCase("rotation2")) parsed.rotation2 = value.toInt();
+        else if (key.equalsIgnoreCase("rotation3")) parsed.rotation3 = value.toInt();
+        else if (key.equalsIgnoreCase("automataMode")) parsed.automataMode = static_cast<uint8_t>(value.toInt());
+        else if (key.equalsIgnoreCase("automataPrimary")) parsed.automataPrimary = static_cast<uint8_t>(value.toInt());
+        else if (key.equalsIgnoreCase("automataSecondary")) parsed.automataSecondary = static_cast<uint8_t>(value.toInt());
+    }
+    snapshot = parsed;
+    return true;
+}
+
+void LEDManager::applyPreset(const PresetSnapshot& snapshot) {
+    if (snapshot.panelCount != _panelCount) {
+        setPanelCount(snapshot.panelCount);
+    }
+
+    if (snapshot.animationIndex != _currentAnimationIndex) {
+        setAnimation(snapshot.animationIndex);
+    }
+
+    setPalette(snapshot.paletteIndex);
+    setBrightness(snapshot.brightness);
+    setFadeAmount(snapshot.fadeAmount);
+    setTailLength(snapshot.tailLength);
+    setSpeed(snapshot.speed);
+    setSpawnRate(snapshot.spawnRate);
+    setMaxFlakes(snapshot.maxFlakes);
+    setColumnSkip(snapshot.columnSkip);
+    setGoLHighlightWidth(snapshot.highlightWidth);
+    setGoLHighlightColorHex(snapshot.highlightColorHex);
+    setGoLUniformBirths(snapshot.uniformBirths);
+    setGoLBirthColorHex(snapshot.birthColorHex);
+    setGoLUpdateMode(snapshot.golUpdateMode);
+    setGoLNeighborMode(snapshot.golNeighborMode);
+    setGoLWrapEdges(snapshot.golWrapEdges);
+    setGoLClusterColorMode(snapshot.golClusterColorMode);
+    setGoLSeedDensity(snapshot.golSeedDensity);
+    setGoLMutationChance(snapshot.golMutationChance);
+    setGoLRules(snapshot.golRuleString);
+    setAutomataMode(snapshot.automataMode);
+    setAutomataPrimary(snapshot.automataPrimary);
+    setAutomataSecondary(snapshot.automataSecondary);
+
+    if (snapshot.panelOrder == 0) {
+        setPanelOrder("left");
+    } else if (snapshot.panelOrder == 1) {
+        setPanelOrder("right");
+    }
+
+    rotatePanel("panel1", snapshot.rotation1);
+    rotatePanel("panel2", snapshot.rotation2);
+    rotatePanel("panel3", snapshot.rotation3);
+}
+
+std::vector<String> LEDManager::listPresets() {
+    return loadPresetNameList();
+}
+
+bool LEDManager::savePreset(const String& rawName, String& errorMessage) {
+    String name = sanitizePresetName(rawName);
+    if (name.isEmpty()) {
+        errorMessage = "Preset name cannot be empty.";
+        return false;
+    }
+    if (!ensurePrefsReady()) {
+        errorMessage = "Preferences not available.";
+        return false;
+    }
+
+    PresetSnapshot snapshot = captureCurrentPreset();
+    String serialized = serializePreset(snapshot);
+    const String key = "preset:" + name;
+    if (!_prefs.putString(key.c_str(), serialized)) {
+        errorMessage = "Unable to store preset.";
+        return false;
+    }
+
+    auto names = loadPresetNameList();
+    bool found = false;
+    for (auto& existing : names) {
+        if (existing.equalsIgnoreCase(name)) {
+            existing = name;
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        names.push_back(name);
+    }
+    storePresetNameList(names);
+    LogManager::getInstance().info("Preset '" + name + "' saved.");
+    return true;
+}
+
+bool LEDManager::loadPreset(const String& rawName, String& errorMessage) {
+    String name = sanitizePresetName(rawName);
+    if (name.isEmpty()) {
+        errorMessage = "Preset name cannot be empty.";
+        return false;
+    }
+    if (!ensurePrefsReady()) {
+        errorMessage = "Preferences not available.";
+        return false;
+    }
+    const String key = "preset:" + name;
+    String data = _prefs.getString(key.c_str(), "");
+    if (data.isEmpty()) {
+        errorMessage = "Preset not found.";
+        return false;
+    }
+    PresetSnapshot snapshot = captureCurrentPreset();
+    if (!deserializePreset(data, snapshot)) {
+        errorMessage = "Preset data is corrupted.";
+        return false;
+    }
+    applyPreset(snapshot);
+    LogManager::getInstance().info("Preset '" + name + "' loaded.");
+    return true;
+}
+
+bool LEDManager::deletePreset(const String& rawName, String& errorMessage) {
+    String name = sanitizePresetName(rawName);
+    if (name.isEmpty()) {
+        errorMessage = "Preset name cannot be empty.";
+        return false;
+    }
+    if (!ensurePrefsReady()) {
+        errorMessage = "Preferences not available.";
+        return false;
+    }
+    const String key = "preset:" + name;
+    if (!_prefs.remove(key.c_str())) {
+        errorMessage = "Preset not found.";
+        return false;
+    }
+    auto names = loadPresetNameList();
+    names.erase(std::remove_if(names.begin(), names.end(), [&](const String& value){
+        return value.equalsIgnoreCase(name);
+    }), names.end());
+    storePresetNameList(names);
+    LogManager::getInstance().info("Preset '" + name + "' deleted.");
+    return true;
+}
+
+
+
