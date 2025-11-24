@@ -41,6 +41,7 @@ public:
     virtual bool isGameOfLife() const { return false; }
     virtual bool isFirework() const { return false; }
     virtual bool isAutomata() const { return false; }
+    virtual bool isTextScroller() const { return false; }
 
 protected:
     // Shared with derived classes

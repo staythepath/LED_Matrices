@@ -17,6 +17,7 @@
 #include "animations/FireworkAnimation.h"
 #include "animations/GameOfLifeAnimation.h"
 #include "animations/EscherAutomataAnimation.h"
+#include "animations/TextScrollAnimation.h"
 
 // Animations
 #include "animations/BaseAnimation.h"
@@ -29,6 +30,7 @@ LEDManager::LEDManager()
     , _numLeds(_panelCount * 16 * 16)
     , _brightness(DEFAULT_BRIGHTNESS)
     , currentPalette(0)
+    , _customPaletteIndex(-1)
     , _currentAnimation(nullptr)
     , _currentAnimationIndex(-1)
     , spawnRate(1.0f)
@@ -49,6 +51,15 @@ LEDManager::LEDManager()
     , _automataMode(0)
     , _automataPrimary(50)
     , _automataSecondary(55)
+    , _textScrollMode(0)
+    , _textScrollSpeed(60)
+    , _textScrollDirection(0)
+    , _textMirrorGlyphs(false)
+    , _textCompactHeight(false)
+    , _textReverseOrder(false)
+    , _textPrimary("[TIME]")
+    , _textLeft("LEFT")
+    , _textRight("[DATE]")
     , _prefsReady(false)
 {
     createPalettes();
@@ -58,6 +69,7 @@ LEDManager::LEDManager()
     _animationNames.push_back("Firework");    // index=3
     _animationNames.push_back("GameOfLife");  // index=4
     _animationNames.push_back("StrangeLoop"); // index=5
+    _animationNames.push_back("TextTicker");  // index=6
 
     _golUpdateMode = 0;
     _golNeighborMode = 1; // default to 8-connected
@@ -84,6 +96,8 @@ void LEDManager::begin() {
             }
             _panelCount = savedPanels;
             _numLeds = _panelCount * 16 * 16;
+            loadCustomPaletteFromPrefs();
+            loadUserPalettesFromPrefs();
         }
     }
 
@@ -153,8 +167,15 @@ void LEDManager::finishInitialization() {
     // Set initialization flag to false to stop loading animation
     _isInitializing = false;
     
-    // Create default animation (Game of Life)
-    setAnimation(4);
+    int desiredAnim = 4; // fallback to GoL if nothing saved
+    if (_prefsReady || ensurePrefsReady()) {
+        int stored = _prefs.getUChar("lastAnim", 4);
+        if (stored >= 0 && stored < (int)_animationNames.size()) {
+            desiredAnim = stored;
+        }
+    }
+
+    setAnimation(desiredAnim);
     
     Serial.printf("Free heap after animation switch: %u bytes\n", ESP.getFreeHeap());
 }
@@ -275,6 +296,37 @@ void LEDManager::configureCurrentAnimation() {
 
         Serial.printf("StrangeLoop configured mode=%u primary=%u secondary=%u interval=%lu\n",
                       _automataMode, _automataPrimary, _automataSecondary, interval);
+    }
+    else if (_currentAnimation->isTextScroller()) {
+        auto* anim = static_cast<TextScrollAnimation*>(_currentAnimation);
+        anim->setPanelOrder(panelOrder);
+        anim->setRotationAngle1(rotationAngle1);
+        anim->setRotationAngle2(rotationAngle2);
+        anim->setRotationAngle3(rotationAngle3);
+        anim->setMode(static_cast<TextScrollAnimation::Mode>(_textScrollMode));
+        anim->setScrollDirection(_textScrollDirection != 0);
+        anim->setMirrorGlyphs(_textMirrorGlyphs);
+        anim->setCompactHeight(_textCompactHeight);
+        anim->setReverseTextOrder(_textReverseOrder);
+
+        const uint16_t slowest = 480;
+        const uint16_t fastest = 40;
+        float normalized = static_cast<float>(_textScrollSpeed) / 100.0f;
+        uint16_t interval = slowest - static_cast<uint16_t>((slowest - fastest) * normalized);
+        if (interval < fastest) interval = fastest;
+        anim->setScrollSpeed(interval);
+
+        CRGB textColor = CRGB::White;
+        if (!ALL_PALETTES.empty()) {
+            const auto& palette = ALL_PALETTES[currentPalette % ALL_PALETTES.size()];
+            if (!palette.empty()) {
+                textColor = palette[0];
+            }
+        }
+        anim->setTextColor(textColor);
+        anim->setMessage(TextScrollAnimation::Slot::Primary, _textPrimary);
+        anim->setMessage(TextScrollAnimation::Slot::Left, _textLeft);
+        anim->setMessage(TextScrollAnimation::Slot::Right, _textRight);
     }
     else if (_currentAnimation->isFirework()) {
         FireworkAnimation* anim = static_cast<FireworkAnimation*>(_currentAnimation);
@@ -421,6 +473,9 @@ void LEDManager::setAnimation(int index) {
         case 5: // StrangeLoop / automata showcase
             _currentAnimation = new EscherAutomataAnimation(_numLeds, _brightness, _panelCount);
             break;
+        case 6: // Text ticker
+            _currentAnimation = new TextScrollAnimation(_numLeds, _brightness, _panelCount);
+            break;
         default:
             systemError("Unknown animation index: " + String(index) + ", falling back to Traffic");
             _currentAnimation = new TrafficAnimation(_numLeds, _brightness, _panelCount);
@@ -462,6 +517,10 @@ void LEDManager::setAnimation(int index) {
     if (_currentAnimation) {
         this->configureCurrentAnimation();
         _currentAnimation->begin();
+    }
+
+    if (_prefsReady || ensurePrefsReady()) {
+        _prefs.putUChar("lastAnim", static_cast<uint8_t>(_currentAnimationIndex));
     }
 }
 
@@ -709,7 +768,8 @@ void LEDManager::createPalettes() {
         { CRGB(139,0,0), CRGB(218,165,32), CRGB(255,0,255), CRGB(75,0,130), CRGB(0,100,140) }
     };
 
-    PALETTE_NAMES = { "BOG",
+    PALETTE_NAMES = {
+        "BOG",
         "BOGR",
         "Cool Sunset",
         "Neon Tropical",
@@ -721,6 +781,18 @@ void LEDManager::createPalettes() {
         "Retro Arcade",
         "Royal Rainbow"
     };
+
+    _customPalette = {
+        CRGB::Red,
+        CRGB::Green,
+        CRGB::Blue,
+        CRGB::White,
+        CRGB(255, 128, 0)
+    };
+
+    ALL_PALETTES.push_back(_customPalette);
+    PALETTE_NAMES.push_back("Custom");
+    _customPaletteIndex = static_cast<int>(ALL_PALETTES.size()) - 1;
 }
 
 void LEDManager::setBrightness(uint8_t b){
@@ -1150,6 +1222,117 @@ void LEDManager::resetAutomataPattern() {
     }
 }
 
+void LEDManager::setTextScrollMode(uint8_t mode) {
+    if (mode > 1) mode = 0;
+    _textScrollMode = mode;
+    if (_currentAnimation && _currentAnimation->isTextScroller()) {
+        auto* anim = static_cast<TextScrollAnimation*>(_currentAnimation);
+        anim->setMode(static_cast<TextScrollAnimation::Mode>(_textScrollMode));
+    }
+}
+
+uint8_t LEDManager::getTextScrollMode() const {
+    return _textScrollMode;
+}
+
+void LEDManager::setTextScrollDirection(uint8_t direction) {
+    _textScrollDirection = direction ? 1 : 0;
+    if (_currentAnimation && _currentAnimation->isTextScroller()) {
+        auto* anim = static_cast<TextScrollAnimation*>(_currentAnimation);
+        anim->setScrollDirection(_textScrollDirection != 0);
+    }
+}
+
+uint8_t LEDManager::getTextScrollDirection() const {
+    return _textScrollDirection;
+}
+
+void LEDManager::setTextMirrorGlyphs(bool mirror) {
+    _textMirrorGlyphs = mirror;
+    if (_currentAnimation && _currentAnimation->isTextScroller()) {
+        auto* anim = static_cast<TextScrollAnimation*>(_currentAnimation);
+        anim->setMirrorGlyphs(_textMirrorGlyphs);
+    }
+}
+
+bool LEDManager::getTextMirrorGlyphs() const {
+    return _textMirrorGlyphs;
+}
+
+void LEDManager::setTextCompactHeight(bool compact) {
+    _textCompactHeight = compact;
+    if (_currentAnimation && _currentAnimation->isTextScroller()) {
+        auto* anim = static_cast<TextScrollAnimation*>(_currentAnimation);
+        anim->setCompactHeight(_textCompactHeight);
+    }
+}
+
+bool LEDManager::getTextCompactHeight() const {
+    return _textCompactHeight;
+}
+
+void LEDManager::setTextReverseOrder(bool reverse) {
+    _textReverseOrder = reverse;
+    if (_currentAnimation && _currentAnimation->isTextScroller()) {
+        auto* anim = static_cast<TextScrollAnimation*>(_currentAnimation);
+        anim->setReverseTextOrder(_textReverseOrder);
+    }
+}
+
+bool LEDManager::getTextReverseOrder() const {
+    return _textReverseOrder;
+}
+
+void LEDManager::setTextScrollSpeed(uint8_t percent) {
+    if (percent > 100) percent = 100;
+    _textScrollSpeed = percent;
+    if (_currentAnimation && _currentAnimation->isTextScroller()) {
+        auto* anim = static_cast<TextScrollAnimation*>(_currentAnimation);
+        const uint16_t slowest = 480;
+        const uint16_t fastest = 40;
+        float normalized = static_cast<float>(_textScrollSpeed) / 100.0f;
+        uint16_t interval = slowest - static_cast<uint16_t>((slowest - fastest) * normalized);
+        if (interval < fastest) interval = fastest;
+        anim->setScrollSpeed(interval);
+    }
+}
+
+uint8_t LEDManager::getTextScrollSpeed() const {
+    return _textScrollSpeed;
+}
+
+void LEDManager::setTextScrollMessage(uint8_t slot, const String& text) {
+    String sanitized = text;
+    sanitized.trim();
+    sanitized.replace("\r", "");
+    sanitized.replace("\n", " ");
+    if (sanitized.length() > 96) {
+        sanitized = sanitized.substring(0, 96);
+    }
+
+    switch (slot) {
+        case 0: _textPrimary = sanitized; break;
+        case 1: _textLeft = sanitized; break;
+        case 2: _textRight = sanitized; break;
+        default: return;
+    }
+
+    if (_currentAnimation && _currentAnimation->isTextScroller()) {
+        auto* anim = static_cast<TextScrollAnimation*>(_currentAnimation);
+        auto textSlot = static_cast<TextScrollAnimation::Slot>(std::min<uint8_t>(slot, 2));
+        anim->setMessage(textSlot, sanitized);
+    }
+}
+
+String LEDManager::getTextScrollMessage(uint8_t slot) const {
+    switch (slot) {
+        case 0: return _textPrimary;
+        case 1: return _textLeft;
+        case 2: return _textRight;
+        default: return "";
+    }
+}
+
 void LEDManager::setGoLUpdateMode(uint8_t mode) {
     if (mode > 2) mode = 0;
     _golUpdateMode = mode;
@@ -1377,6 +1560,21 @@ String LEDManager::sanitizePresetName(const String& name) const {
     return sanitized;
 }
 
+String LEDManager::makePresetStorageKey(const String& name) const {
+    uint32_t hash = 2166136261u;
+    for (size_t i = 0; i < name.length(); ++i) {
+        hash ^= static_cast<uint8_t>(name.charAt(i));
+        hash *= 16777619u;
+    }
+    char buffer[16];
+    snprintf(buffer, sizeof(buffer), "pr_%08lX", static_cast<unsigned long>(hash));
+    return String(buffer);
+}
+
+String LEDManager::legacyPresetStorageKey(const String& name) const {
+    return "preset:" + name;
+}
+
 std::vector<String> LEDManager::loadPresetNameList() {
     std::vector<String> names;
     if (!ensurePrefsReady()) {
@@ -1447,6 +1645,15 @@ LEDManager::PresetSnapshot LEDManager::captureCurrentPreset() const {
     snapshot.automataMode = _automataMode;
     snapshot.automataPrimary = _automataPrimary;
     snapshot.automataSecondary = _automataSecondary;
+    snapshot.textMode = _textScrollMode;
+    snapshot.textSpeed = _textScrollSpeed;
+    snapshot.textDirection = _textScrollDirection;
+    snapshot.textMirror = _textMirrorGlyphs;
+    snapshot.textCompact = _textCompactHeight;
+    snapshot.textReverse = _textReverseOrder;
+    snapshot.textPrimary = _textPrimary;
+    snapshot.textLeft = _textLeft;
+    snapshot.textRight = _textRight;
     return snapshot;
 }
 
@@ -1477,10 +1684,19 @@ String LEDManager::serializePreset(const PresetSnapshot& snapshot) const {
    data += "panelOrder=" + String(snapshot.panelOrder) + "\n";
    data += "rotation1=" + String(snapshot.rotation1) + "\n";
    data += "rotation2=" + String(snapshot.rotation2) + "\n";
-   data += "rotation3=" + String(snapshot.rotation3) + "\n";
+    data += "rotation3=" + String(snapshot.rotation3) + "\n";
     data += "automataMode=" + String(snapshot.automataMode) + "\n";
     data += "automataPrimary=" + String(snapshot.automataPrimary) + "\n";
     data += "automataSecondary=" + String(snapshot.automataSecondary) + "\n";
+    data += "textMode=" + String(snapshot.textMode) + "\n";
+    data += "textSpeed=" + String(snapshot.textSpeed) + "\n";
+    data += "textDirection=" + String(snapshot.textDirection) + "\n";
+    data += "textMirror=" + String(snapshot.textMirror ? 1 : 0) + "\n";
+    data += "textCompact=" + String(snapshot.textCompact ? 1 : 0) + "\n";
+    data += "textReverse=" + String(snapshot.textReverse ? 1 : 0) + "\n";
+    data += "textPrimary=" + snapshot.textPrimary + "\n";
+    data += "textLeft=" + snapshot.textLeft + "\n";
+    data += "textRight=" + snapshot.textRight + "\n";
     return data;
 }
 
@@ -1535,6 +1751,15 @@ bool LEDManager::deserializePreset(const String& payload, PresetSnapshot& snapsh
         else if (key.equalsIgnoreCase("automataMode")) parsed.automataMode = static_cast<uint8_t>(value.toInt());
         else if (key.equalsIgnoreCase("automataPrimary")) parsed.automataPrimary = static_cast<uint8_t>(value.toInt());
         else if (key.equalsIgnoreCase("automataSecondary")) parsed.automataSecondary = static_cast<uint8_t>(value.toInt());
+        else if (key.equalsIgnoreCase("textMode")) parsed.textMode = static_cast<uint8_t>(value.toInt());
+        else if (key.equalsIgnoreCase("textSpeed")) parsed.textSpeed = static_cast<uint8_t>(value.toInt());
+        else if (key.equalsIgnoreCase("textDirection")) parsed.textDirection = static_cast<uint8_t>(value.toInt());
+        else if (key.equalsIgnoreCase("textMirror")) parsed.textMirror = parseBoolValue(value, parsed.textMirror);
+        else if (key.equalsIgnoreCase("textCompact")) parsed.textCompact = parseBoolValue(value, parsed.textCompact);
+        else if (key.equalsIgnoreCase("textReverse")) parsed.textReverse = parseBoolValue(value, parsed.textReverse);
+        else if (key.equalsIgnoreCase("textPrimary")) parsed.textPrimary = value;
+        else if (key.equalsIgnoreCase("textLeft")) parsed.textLeft = value;
+        else if (key.equalsIgnoreCase("textRight")) parsed.textRight = value;
     }
     snapshot = parsed;
     return true;
@@ -1571,6 +1796,15 @@ void LEDManager::applyPreset(const PresetSnapshot& snapshot) {
     setAutomataMode(snapshot.automataMode);
     setAutomataPrimary(snapshot.automataPrimary);
     setAutomataSecondary(snapshot.automataSecondary);
+    setTextScrollMode(snapshot.textMode);
+    setTextScrollSpeed(snapshot.textSpeed);
+    setTextScrollDirection(snapshot.textDirection);
+    setTextMirrorGlyphs(snapshot.textMirror);
+    setTextCompactHeight(snapshot.textCompact);
+    setTextReverseOrder(snapshot.textReverse);
+    setTextScrollMessage(0, snapshot.textPrimary);
+    setTextScrollMessage(1, snapshot.textLeft);
+    setTextScrollMessage(2, snapshot.textRight);
 
     if (snapshot.panelOrder == 0) {
         setPanelOrder("left");
@@ -1600,10 +1834,15 @@ bool LEDManager::savePreset(const String& rawName, String& errorMessage) {
 
     PresetSnapshot snapshot = captureCurrentPreset();
     String serialized = serializePreset(snapshot);
-    const String key = "preset:" + name;
-    if (!_prefs.putString(key.c_str(), serialized)) {
+    const String key = makePresetStorageKey(name);
+    size_t written = _prefs.putString(key.c_str(), serialized);
+    if (written == 0) {
         errorMessage = "Unable to store preset.";
         return false;
+    }
+    const String legacyKey = legacyPresetStorageKey(name);
+    if (!legacyKey.equals(key)) {
+        _prefs.remove(legacyKey.c_str());
     }
 
     auto names = loadPresetNameList();
@@ -1633,8 +1872,16 @@ bool LEDManager::loadPreset(const String& rawName, String& errorMessage) {
         errorMessage = "Preferences not available.";
         return false;
     }
-    const String key = "preset:" + name;
+    const String key = makePresetStorageKey(name);
     String data = _prefs.getString(key.c_str(), "");
+    if (data.isEmpty()) {
+        const String legacyKey = legacyPresetStorageKey(name);
+        data = _prefs.getString(legacyKey.c_str(), "");
+        if (!data.isEmpty()) {
+            _prefs.remove(legacyKey.c_str());
+            _prefs.putString(key.c_str(), data);
+        }
+    }
     if (data.isEmpty()) {
         errorMessage = "Preset not found.";
         return false;
@@ -1659,8 +1906,13 @@ bool LEDManager::deletePreset(const String& rawName, String& errorMessage) {
         errorMessage = "Preferences not available.";
         return false;
     }
-    const String key = "preset:" + name;
-    if (!_prefs.remove(key.c_str())) {
+    const String key = makePresetStorageKey(name);
+    bool removed = _prefs.remove(key.c_str());
+    if (!removed) {
+        const String legacyKey = legacyPresetStorageKey(name);
+        removed = _prefs.remove(legacyKey.c_str());
+    }
+    if (!removed) {
         errorMessage = "Preset not found.";
         return false;
     }
@@ -1672,4 +1924,337 @@ bool LEDManager::deletePreset(const String& rawName, String& errorMessage) {
     LogManager::getInstance().info("Preset '" + name + "' deleted.");
     return true;
 }
+
+bool LEDManager::setCustomPaletteHex(const std::vector<String>& hexColors) {
+    if (hexColors.empty()) {
+        return false;
+    }
+
+    std::vector<CRGB> parsed;
+    parsed.reserve(hexColors.size());
+
+    for (const auto& hex : hexColors) {
+        if (parsed.size() >= MAX_CUSTOM_PALETTE_COLORS) {
+            break;
+        }
+        CRGB color;
+        if (!parseHexColor(hex, color)) {
+            return false;
+        }
+        parsed.push_back(color);
+    }
+
+    if (parsed.empty()) {
+        return false;
+    }
+
+    _customPalette = parsed;
+
+    if (_customPaletteIndex < 0 || _customPaletteIndex >= static_cast<int>(ALL_PALETTES.size())) {
+        ALL_PALETTES.push_back(_customPalette);
+        PALETTE_NAMES.push_back("Custom");
+        _customPaletteIndex = static_cast<int>(ALL_PALETTES.size()) - 1;
+    } else {
+        ALL_PALETTES[_customPaletteIndex] = _customPalette;
+    }
+
+    if (_currentAnimation && currentPalette == _customPaletteIndex) {
+        configureCurrentAnimation();
+    }
+
+    LogManager::getInstance().info("Custom palette updated with " + String(_customPalette.size()) + " colours.");
+    saveCustomPaletteToPrefs();
+    return true;
+}
+
+std::vector<String> LEDManager::getCustomPaletteHex() const {
+    std::vector<String> output;
+    output.reserve(_customPalette.size());
+    for (const auto& color : _customPalette) {
+        output.push_back(colorToHex(color));
+    }
+    return output;
+}
+
+int LEDManager::getCustomPaletteIndex() const {
+    return _customPaletteIndex;
+}
+
+bool LEDManager::addUserPalette(const String& name, const std::vector<String>& hexColors, int& newIndexOut) {
+    newIndexOut = -1;
+    if (hexColors.empty()) {
+        return false;
+    }
+    if (!ensurePrefsReady()) {
+        return false;
+    }
+
+    loadUserPalettesFromPrefs();
+
+    String sanitizedName = sanitizePaletteName(name);
+    if (sanitizedName.isEmpty()) {
+        return false;
+    }
+
+    for (const auto& existing : PALETTE_NAMES) {
+        if (existing.equalsIgnoreCase(sanitizedName)) {
+            return false;
+        }
+    }
+
+    if (_userPaletteNames.size() >= MAX_USER_PALETTES) {
+        LogManager::getInstance().warning("Maximum user palettes reached.");
+        return false;
+    }
+
+    std::vector<CRGB> parsed;
+    parsed.reserve(hexColors.size());
+    for (const auto& hex : hexColors) {
+        if (parsed.size() >= MAX_CUSTOM_PALETTE_COLORS) {
+            break;
+        }
+        CRGB color;
+        if (!parseHexColor(hex, color)) {
+            return false;
+        }
+        parsed.push_back(color);
+    }
+
+    if (parsed.empty()) {
+        return false;
+    }
+
+    _userPaletteNames.push_back(sanitizedName);
+    _userPalettes.push_back(parsed);
+    ALL_PALETTES.push_back(parsed);
+    PALETTE_NAMES.push_back(sanitizedName);
+    newIndexOut = static_cast<int>(ALL_PALETTES.size()) - 1;
+
+    saveUserPalettesToPrefs();
+    LogManager::getInstance().info("Saved user palette '" + sanitizedName + "' with " + String(parsed.size()) + " colours.");
+    return true;
+}
+
+void LEDManager::loadCustomPaletteFromPrefs() {
+    if (!_prefsReady) {
+        return;
+    }
+
+    String stored = _prefs.getString("customPalette", "");
+    stored.trim();
+    if (stored.isEmpty()) {
+        return;
+    }
+
+    std::vector<String> hexValues;
+    int start = 0;
+    while (start < stored.length()) {
+        int comma = stored.indexOf(',', start);
+        if (comma < 0) {
+            comma = stored.length();
+        }
+        String token = stored.substring(start, comma);
+        token.trim();
+        if (!token.isEmpty()) {
+            hexValues.push_back(token);
+        }
+        start = comma + 1;
+    }
+
+    if (!hexValues.empty()) {
+        setCustomPaletteHex(hexValues);
+    }
+}
+
+void LEDManager::saveCustomPaletteToPrefs() {
+    if (!_prefsReady) {
+        return;
+    }
+
+    String encoded;
+    for (size_t i = 0; i < _customPalette.size(); ++i) {
+        if (i > 0) {
+            encoded += ",";
+        }
+        encoded += colorToHex(_customPalette[i]);
+    }
+    _prefs.putString("customPalette", encoded);
+}
+
+void LEDManager::loadUserPalettesFromPrefs() {
+    if (!_prefsReady) {
+        return;
+    }
+    if (!_userPaletteNames.empty()) {
+        return;
+    }
+
+    String stored = _prefs.getString("userPalettes", "");
+    stored.trim();
+    if (stored.isEmpty()) {
+        return;
+    }
+
+    int start = 0;
+    while (start < stored.length()) {
+        int delim = stored.indexOf(';', start);
+        if (delim < 0) {
+            delim = stored.length();
+        }
+        String entry = stored.substring(start, delim);
+        entry.trim();
+        start = delim + 1;
+        if (entry.isEmpty()) {
+            continue;
+        }
+
+        int split = entry.indexOf('|');
+        if (split <= 0 || split >= entry.length() - 1) {
+            continue;
+        }
+
+        String rawName = entry.substring(0, split);
+        String coloursPart = entry.substring(split + 1);
+        rawName.trim();
+        coloursPart.trim();
+        if (rawName.isEmpty() || coloursPart.isEmpty()) {
+            continue;
+        }
+
+        String sanitizedName = sanitizePaletteName(rawName);
+        if (sanitizedName.isEmpty()) {
+            continue;
+        }
+
+        bool duplicate = false;
+        for (const auto& existing : PALETTE_NAMES) {
+            if (existing.equalsIgnoreCase(sanitizedName)) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate) {
+            continue;
+        }
+
+        std::vector<CRGB> parsed;
+        parsed.reserve(MAX_CUSTOM_PALETTE_COLORS);
+
+        int colorStart = 0;
+        while (colorStart < coloursPart.length()) {
+            int comma = coloursPart.indexOf(',', colorStart);
+            if (comma < 0) {
+                comma = coloursPart.length();
+            }
+            String token = coloursPart.substring(colorStart, comma);
+            token.trim();
+            colorStart = comma + 1;
+            if (token.isEmpty()) {
+                continue;
+            }
+            CRGB color;
+            if (!parseHexColor(token, color)) {
+                parsed.clear();
+                break;
+            }
+            parsed.push_back(color);
+            if (parsed.size() >= MAX_CUSTOM_PALETTE_COLORS) {
+                break;
+            }
+        }
+
+        if (parsed.empty()) {
+            continue;
+        }
+
+        _userPaletteNames.push_back(sanitizedName);
+        _userPalettes.push_back(parsed);
+        ALL_PALETTES.push_back(parsed);
+        PALETTE_NAMES.push_back(sanitizedName);
+    }
+}
+
+void LEDManager::saveUserPalettesToPrefs() {
+    if (!ensurePrefsReady()) {
+        return;
+    }
+
+    String encoded;
+    for (size_t i = 0; i < _userPalettes.size() && i < _userPaletteNames.size(); ++i) {
+        if (i > 0) {
+            encoded += ";";
+        }
+        encoded += _userPaletteNames[i];
+        encoded += "|";
+        for (size_t j = 0; j < _userPalettes[i].size(); ++j) {
+            if (j > 0) {
+                encoded += ",";
+            }
+            encoded += colorToHex(_userPalettes[i][j]);
+        }
+    }
+    _prefs.putString("userPalettes", encoded);
+}
+
+bool LEDManager::parseHexColor(const String& hex, CRGB& outColor) const {
+    String value = hex;
+    value.trim();
+    if (value.isEmpty()) {
+        return false;
+    }
+    if (value.charAt(0) == '#') {
+        value = value.substring(1);
+    }
+    if (value.length() != 6) {
+        return false;
+    }
+    for (int i = 0; i < 6; ++i) {
+        if (!isxdigit(static_cast<unsigned char>(value.charAt(i)))) {
+            return false;
+        }
+    }
+    long parsed = strtol(value.c_str(), nullptr, 16);
+    if (parsed < 0 || parsed > 0xFFFFFF) {
+        return false;
+    }
+    outColor = CRGB(
+        static_cast<uint8_t>((parsed >> 16) & 0xFF),
+        static_cast<uint8_t>((parsed >> 8) & 0xFF),
+        static_cast<uint8_t>(parsed & 0xFF)
+    );
+    return true;
+}
+
+String LEDManager::colorToHex(const CRGB& color) const {
+    char buffer[8];
+    snprintf(buffer, sizeof(buffer), "#%02X%02X%02X", color.r, color.g, color.b);
+    return String(buffer);
+}
+
+String LEDManager::sanitizePaletteName(const String& name) const {
+    String sanitized = name;
+    sanitized.trim();
+    if (sanitized.isEmpty()) {
+        return "";
+    }
+
+    String output;
+    output.reserve(sanitized.length());
+    for (size_t i = 0; i < sanitized.length(); ++i) {
+        char c = sanitized.charAt(i);
+        if (c == '|' || c == ';' || c == ',' || c == '\r' || c == '\n') {
+            c = '-';
+        }
+        if (static_cast<unsigned char>(c) < 32) {
+            continue;
+        }
+        output += c;
+    }
+    output.trim();
+    if (output.length() > 32) {
+        output = output.substring(0, 32);
+    }
+    return output;
+}
+
 

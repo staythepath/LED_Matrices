@@ -49,6 +49,10 @@ public:
     size_t getPaletteCount() const;
     String getPaletteNameAt(int index) const;
     const std::vector<CRGB>& getCurrentPaletteColors() const;
+    bool setCustomPaletteHex(const std::vector<String>& hexColors);
+    std::vector<String> getCustomPaletteHex() const;
+    int getCustomPaletteIndex() const;
+    bool addUserPalette(const String& name, const std::vector<String>& hexColors, int& newIndexOut);
 
     // Spawn
     void setSpawnRate(float rate);
@@ -111,6 +115,22 @@ public:
     uint8_t getAutomataSecondary() const;
     void resetAutomataPattern();
 
+    // Text scroller controls
+    void setTextScrollMode(uint8_t mode);
+    uint8_t getTextScrollMode() const;
+    void setTextScrollSpeed(uint8_t percent);
+    uint8_t getTextScrollSpeed() const;
+    void setTextScrollDirection(uint8_t direction);
+    uint8_t getTextScrollDirection() const;
+    void setTextMirrorGlyphs(bool mirror);
+    bool getTextMirrorGlyphs() const;
+    void setTextCompactHeight(bool compact);
+    bool getTextCompactHeight() const;
+    void setTextReverseOrder(bool reverse);
+    bool getTextReverseOrder() const;
+    void setTextScrollMessage(uint8_t slot, const String& text);
+    String getTextScrollMessage(uint8_t slot) const;
+
     // Presets
     std::vector<String> listPresets();
     bool savePreset(const String& name, String& errorMessage);
@@ -160,6 +180,15 @@ private:
         uint8_t automataMode;
         uint8_t automataPrimary;
         uint8_t automataSecondary;
+        uint8_t textMode;
+        uint8_t textSpeed;
+        uint8_t textDirection;
+        bool textMirror;
+        bool textCompact;
+        bool textReverse;
+        String textPrimary;
+        String textLeft;
+        String textRight;
     };
 
     PresetSnapshot captureCurrentPreset() const;
@@ -170,6 +199,8 @@ private:
     std::vector<String> loadPresetNameList();
     void storePresetNameList(const std::vector<String>& names);
     void applyPreset(const PresetSnapshot& snapshot);
+    String makePresetStorageKey(const String& name) const;
+    String legacyPresetStorageKey(const String& name) const;
 
 private:
     bool _isInitializing;  // Flag to indicate system is still initializing
@@ -180,6 +211,10 @@ private:
     std::vector<std::vector<CRGB>> ALL_PALETTES;
     std::vector<String>            PALETTE_NAMES;
     int                            currentPalette;
+    std::vector<CRGB>              _customPalette;
+    int                            _customPaletteIndex;
+    std::vector<std::vector<CRGB>> _userPalettes;
+    std::vector<String>            _userPaletteNames;
 
     BaseAnimation* _currentAnimation;
     int            _currentAnimationIndex;
@@ -215,8 +250,28 @@ private:
     uint8_t _automataMode;
     uint8_t _automataPrimary;
     uint8_t _automataSecondary;
+    uint8_t _textScrollMode;
+    uint8_t _textScrollSpeed;
+    uint8_t _textScrollDirection;
+    bool _textMirrorGlyphs;
+    bool _textCompactHeight;
+    bool _textReverseOrder;
+    String _textPrimary;
+    String _textLeft;
+    String _textRight;
     Preferences _prefs;
     bool _prefsReady;
+
+    void loadCustomPaletteFromPrefs();
+    void saveCustomPaletteToPrefs();
+    void loadUserPalettesFromPrefs();
+    void saveUserPalettesToPrefs();
+    bool parseHexColor(const String& hex, CRGB& outColor) const;
+    String colorToHex(const CRGB& color) const;
+    String sanitizePaletteName(const String& name) const;
+
+    static constexpr size_t MAX_CUSTOM_PALETTE_COLORS = 16;
+    static constexpr size_t MAX_USER_PALETTES = 24;
 };
 
 #endif // LEDMANAGER_H

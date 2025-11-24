@@ -14,6 +14,7 @@
 #include <WiFi.h>
 #include "LEDManager.h"   // So we can call LEDManager methods
 #include "LogManager.h"   // Include LogManager for system logs
+#include <vector>
 
 // Format SPIFFS if mount fails
 #define FORMAT_SPIFFS_IF_FAILED true
@@ -381,6 +382,137 @@ void WebServerManager::begin() {
         releaseLEDManager();
         request->send(200, "text/plain", msg);
         Serial.println(msg);
+    });
+
+    _server.on("/api/getCustomPalette", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+
+        String json = "{\"index\":";
+        json += String(ledManager.getCustomPaletteIndex());
+        json += ",\"colors\":[";
+
+        auto colors = ledManager.getCustomPaletteHex();
+        for (size_t i = 0; i < colors.size(); ++i) {
+            json += "\"" + colors[i] + "\"";
+            if (i + 1 < colors.size()) {
+                json += ",";
+            }
+        }
+        json += "]}";
+
+        releaseLEDManager();
+        request->send(200, "application/json", json);
+    });
+
+    _server.on("/api/setCustomPalette", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+
+        std::vector<String> hexColors;
+        int paramCount = request->params();
+        for (int i = 0; i < paramCount; ++i) {
+            const AsyncWebParameter* param = request->getParam(i);
+            if (param && !param->isPost() && !param->isFile() && param->name().equalsIgnoreCase("color")) {
+                String value = param->value();
+                value.trim();
+                if (!value.isEmpty()) {
+                    hexColors.push_back(value);
+                }
+            }
+        }
+
+        if (hexColors.empty()) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Provide at least one 'color' parameter (#RRGGBB).");
+            return;
+        }
+
+        if (!ledManager.setCustomPaletteHex(hexColors)) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Invalid colour list. Use hex values like #FF0088.");
+            return;
+        }
+
+        bool applyImmediately = false;
+        if (request->hasParam("select")) {
+            applyImmediately = request->getParam("select")->value().toInt() != 0;
+        }
+
+        if (applyImmediately) {
+            int idx = ledManager.getCustomPaletteIndex();
+            ledManager.setPalette(idx);
+        }
+
+        String msg = "Custom palette updated with ";
+        msg += String(hexColors.size());
+        msg += " colours.";
+
+        if (applyImmediately) {
+            msg += " Custom palette selected.";
+        }
+
+        releaseLEDManager();
+        request->send(200, "text/plain", msg);
+        Serial.println(msg);
+    });
+
+    _server.on("/api/savePalette", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+
+        if (!request->hasParam("name")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing 'name' parameter.");
+            return;
+        }
+
+        String rawName = request->getParam("name")->value();
+        rawName.trim();
+
+        std::vector<String> hexColors;
+        int paramCount = request->params();
+        for (int i = 0; i < paramCount; ++i) {
+            const AsyncWebParameter* param = request->getParam(i);
+            if (param && !param->isPost() && !param->isFile() && param->name().equalsIgnoreCase("color")) {
+                String value = param->value();
+                value.trim();
+                if (!value.isEmpty()) {
+                    hexColors.push_back(value);
+                }
+            }
+        }
+
+        if (hexColors.empty()) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Provide at least one 'color' parameter (#RRGGBB).");
+            return;
+        }
+
+        int newIndex = -1;
+        bool saved = ledManager.addUserPalette(rawName, hexColors, newIndex);
+        if (!saved || newIndex < 0) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Unable to save palette. Use a unique name and valid colours.");
+            return;
+        }
+
+        String storedName = ledManager.getPaletteNameAt(newIndex);
+        releaseLEDManager();
+
+        String escapedName = storedName;
+        escapedName.replace("\\", "\\\\");
+        escapedName.replace("\"", "\\\"");
+
+        String json = "{\"index\":" + String(newIndex) + ",\"name\":\"" + escapedName + "\"}";
+        request->send(200, "application/json", json);
+        Serial.printf("User palette '%s' saved at index %d\n", storedName.c_str(), newIndex);
     });
 
 
@@ -784,6 +916,145 @@ void WebServerManager::begin() {
         
         releaseLEDManager();
         request->send(200,"application/json", json);
+    });
+
+    // Text ticker configuration endpoints
+    _server.on("/api/text/getConfig", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        String json = "{";
+        json += "\"mode\":" + String(ledManager.getTextScrollMode()) + ",";
+        json += "\"speed\":" + String(ledManager.getTextScrollSpeed()) + ",";
+        json += "\"direction\":" + String(ledManager.getTextScrollDirection()) + ",";
+        json += "\"mirror\":" + String(ledManager.getTextMirrorGlyphs() ? 1 : 0) + ",";
+        json += "\"compact\":" + String(ledManager.getTextCompactHeight() ? 1 : 0) + ",";
+        json += "\"reverse\":" + String(ledManager.getTextReverseOrder() ? 1 : 0) + ",";
+        json += "\"primary\":\"" + jsonEscape(ledManager.getTextScrollMessage(0)) + "\",";
+        json += "\"left\":\"" + jsonEscape(ledManager.getTextScrollMessage(1)) + "\",";
+        json += "\"right\":\"" + jsonEscape(ledManager.getTextScrollMessage(2)) + "\"";
+        json += "}";
+        releaseLEDManager();
+        request->send(200, "application/json", json);
+    });
+
+    _server.on("/api/text/setMode", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        if (!request->hasParam("val")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        uint8_t mode = static_cast<uint8_t>(request->getParam("val")->value().toInt());
+        ledManager.setTextScrollMode(mode);
+        releaseLEDManager();
+        request->send(200, "text/plain", "Text mode updated");
+    });
+
+    _server.on("/api/text/setSpeed", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        if (!request->hasParam("val")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        int speed = request->getParam("val")->value().toInt();
+        if (speed < 0) speed = 0;
+        if (speed > 100) speed = 100;
+        ledManager.setTextScrollSpeed(static_cast<uint8_t>(speed));
+        releaseLEDManager();
+        request->send(200, "text/plain", "Text speed updated");
+    });
+
+    _server.on("/api/text/setDirection", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        if (!request->hasParam("val")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        uint8_t direction = static_cast<uint8_t>(request->getParam("val")->value().toInt());
+        ledManager.setTextScrollDirection(direction);
+        releaseLEDManager();
+        request->send(200, "text/plain", "Text direction updated");
+    });
+
+    _server.on("/api/text/setMirror", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        if (!request->hasParam("val")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        bool mirror = request->getParam("val")->value().toInt() != 0;
+        ledManager.setTextMirrorGlyphs(mirror);
+        releaseLEDManager();
+        request->send(200, "text/plain", "Text glyph mirroring updated");
+    });
+
+    _server.on("/api/text/setCompact", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        if (!request->hasParam("val")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        bool compact = request->getParam("val")->value().toInt() != 0;
+        ledManager.setTextCompactHeight(compact);
+        releaseLEDManager();
+        request->send(200, "text/plain", "Text compact height updated");
+    });
+
+    _server.on("/api/text/setOrder", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        if (!request->hasParam("val")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        bool reverse = request->getParam("val")->value().toInt() != 0;
+        ledManager.setTextReverseOrder(reverse);
+        releaseLEDManager();
+        request->send(200, "text/plain", "Text order updated");
+    });
+
+    _server.on("/api/text/setMessage", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        if (!request->hasParam("slot") || !request->hasParam("value")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing slot or value param");
+            return;
+        }
+        String slot = request->getParam("slot")->value();
+        slot.toLowerCase();
+        uint8_t slotIndex = 0;
+        if (slot == "left") slotIndex = 1;
+        else if (slot == "right") slotIndex = 2;
+        ledManager.setTextScrollMessage(slotIndex, request->getParam("value")->value());
+        releaseLEDManager();
+        request->send(200, "text/plain", "Text message updated");
     });
 
     // 22) identifyPanels => flash each panel in sequence
@@ -1390,3 +1661,4 @@ void WebServerManager::broadcastLogLine(const String& line) {
     }
     _logSocket.textAll(line);
 }
+

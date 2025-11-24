@@ -1,9 +1,13 @@
 const GAME_OF_LIFE_INDEX = 4;
 const STRANGE_LOOP_INDEX = 5;
+const TEXT_TICKER_INDEX = 6;
 const elementaryRulePresets = [30, 45, 73, 90, 102, 110, 129, 165, 225];
 const controlBindings = {};
 let currentAnimationIndex = 0;
 let currentAutomataMode = 0;
+let cryptoTickerInterval = null;
+let cryptoTickerLastUpdate = 0;
+const CRYPTO_REFRESH_MS = 60_000;
 const defaultLabelText = {
   speed: "Speed:",
   brightness: "Brightness:",
@@ -26,7 +30,12 @@ const animationPreviewModes = {
   3: "firework",
   [GAME_OF_LIFE_INDEX]: "gol",
   [STRANGE_LOOP_INDEX]: "automata",
+  [TEXT_TICKER_INDEX]: "ticker",
 };
+
+const MAX_CUSTOM_PALETTE_COLORS = 16;
+let customPaletteIndex = -1;
+let customPaletteColors = ["#FF0000", "#00FF00", "#0000FF", "#FFFFFF"];
 
 const golModeDescriptions = {
   0: "Sweep: Cursor scans the grid, updating one column at a time with the sweep highlight.",
@@ -496,7 +505,9 @@ function log(message) {
   console.log(message);
   const logDiv = document.getElementById("log");
   if (!logDiv) return;
-  logDiv.innerText += `${message}\n`;
+  const line = document.createElement("div");
+  line.textContent = `${new Date().toLocaleTimeString()} ${message}`;
+  logDiv.appendChild(line);
   logDiv.scrollTop = logDiv.scrollHeight;
 }
 
@@ -514,6 +525,304 @@ function setControlStatus(id, message, tone = "info") {
   element.textContent = message;
   element.dataset.tone = tone;
   element.hidden = false;
+}
+
+function normalizeHexColor(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed.length) {
+    return null;
+  }
+  const sanitized = trimmed.startsWith("#") ? trimmed.slice(1) : trimmed;
+  if (!/^[0-9a-fA-F]{6}$/.test(sanitized)) {
+    return null;
+  }
+  return `#${sanitized.toUpperCase()}`;
+}
+
+function normalizePaletteName(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  let trimmed = value.trim();
+  if (!trimmed.length) {
+    return "";
+  }
+  trimmed = trimmed.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ");
+  trimmed = trimmed.replace(/[|;]/g, "-");
+  if (trimmed.length > 32) {
+    trimmed = trimmed.slice(0, 32).trim();
+  }
+  return trimmed;
+}
+
+function toggleCustomPaletteEditor(show) {
+  const container = $("customPaletteContainer");
+  if (container) {
+    container.style.display = show ? "flex" : "none";
+  }
+}
+
+function renderCustomPaletteList() {
+  const list = $("customPaletteList");
+  if (!list) {
+    return;
+  }
+
+  if (!Array.isArray(customPaletteColors) || customPaletteColors.length === 0) {
+    customPaletteColors = ["#FF0000", "#00FF00", "#0000FF", "#FFFFFF"];
+  }
+
+  customPaletteColors = customPaletteColors
+    .map((color) => normalizeHexColor(color) || "#FFFFFF")
+    .slice(0, MAX_CUSTOM_PALETTE_COLORS);
+
+  list.innerHTML = "";
+
+  customPaletteColors.forEach((color, index) => {
+    const row = document.createElement("div");
+    row.className = "custom-color-entry";
+
+    const colorInput = document.createElement("input");
+    colorInput.type = "color";
+    colorInput.value = color;
+    colorInput.setAttribute("aria-label", `Select colour ${index + 1}`);
+
+    const hexInput = document.createElement("input");
+    hexInput.type = "text";
+    hexInput.value = color;
+    hexInput.maxLength = 7;
+    hexInput.placeholder = "#RRGGBB";
+    hexInput.setAttribute("aria-label", `Hex value for colour ${index + 1}`);
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.textContent = "×";
+    removeButton.title = "Remove colour";
+    removeButton.classList.add("danger");
+
+    colorInput.addEventListener("input", (event) => {
+      const normalized = normalizeHexColor(event.target.value) || "#FFFFFF";
+      customPaletteColors[index] = normalized;
+      hexInput.value = normalized;
+      setControlStatus("customPaletteStatus", "");
+    });
+
+    hexInput.addEventListener("change", () => {
+      const normalized = normalizeHexColor(hexInput.value);
+      if (normalized) {
+        customPaletteColors[index] = normalized;
+        hexInput.value = normalized;
+        colorInput.value = normalized;
+        setControlStatus("customPaletteStatus", "");
+      } else {
+        hexInput.value = customPaletteColors[index];
+        setControlStatus("customPaletteStatus", "Use hex colours like #FF6600.", "error");
+      }
+    });
+
+    removeButton.addEventListener("click", () => {
+      if (customPaletteColors.length <= 1) {
+        return;
+      }
+      customPaletteColors.splice(index, 1);
+      renderCustomPaletteList();
+    });
+
+    if (customPaletteColors.length <= 1) {
+      removeButton.disabled = true;
+    }
+
+    row.appendChild(colorInput);
+    row.appendChild(hexInput);
+    row.appendChild(removeButton);
+    list.appendChild(row);
+  });
+}
+
+function bindCustomPaletteControls() {
+  const addButton = $("btnAddCustomColor");
+  if (addButton && !addButton.dataset.bound) {
+    addButton.addEventListener("click", () => {
+      if (customPaletteColors.length >= MAX_CUSTOM_PALETTE_COLORS) {
+        setControlStatus(
+          "customPaletteStatus",
+          `Custom palette supports up to ${MAX_CUSTOM_PALETTE_COLORS} colours.`,
+          "muted"
+        );
+        return;
+      }
+      const last = customPaletteColors[customPaletteColors.length - 1] || "#FFFFFF";
+      customPaletteColors.push(last);
+      renderCustomPaletteList();
+    });
+    addButton.dataset.bound = "1";
+  }
+
+  const applyButton = $("btnApplyCustomPalette");
+  if (applyButton && !applyButton.dataset.bound) {
+    applyButton.addEventListener("click", () => {
+      applyCustomPalette();
+    });
+    applyButton.dataset.bound = "1";
+  }
+
+  const saveButton = $("btnSaveCustomPalette");
+  if (saveButton && !saveButton.dataset.bound) {
+    saveButton.addEventListener("click", () => {
+      saveCustomPalette();
+    });
+    saveButton.dataset.bound = "1";
+  }
+
+  const nameInput = $("inputCustomPaletteName");
+  if (nameInput && !nameInput.dataset.bound) {
+    nameInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        saveCustomPalette();
+      }
+    });
+    nameInput.dataset.bound = "1";
+  }
+
+  renderCustomPaletteList();
+}
+
+async function loadCustomPaletteDetails() {
+  if (customPaletteIndex < 0) {
+    renderCustomPaletteList();
+    return;
+  }
+  try {
+    const data = await fetchJson("/api/getCustomPalette");
+    if (data && typeof data.index === "number") {
+      customPaletteIndex = data.index;
+    }
+    if (data && Array.isArray(data.colors) && data.colors.length) {
+      const normalized = data.colors
+        .map((entry) => normalizeHexColor(entry))
+        .filter(Boolean)
+        .slice(0, MAX_CUSTOM_PALETTE_COLORS);
+      if (normalized.length) {
+        customPaletteColors = normalized;
+      }
+    }
+  } catch (error) {
+    log(`Custom palette fetch failed: ${error.message}`);
+  }
+  renderCustomPaletteList();
+}
+
+async function applyCustomPalette() {
+  const statusId = "customPaletteStatus";
+  const normalized = customPaletteColors
+    .map((color) => normalizeHexColor(color))
+    .filter(Boolean)
+    .slice(0, MAX_CUSTOM_PALETTE_COLORS);
+
+  if (!normalized.length) {
+    setControlStatus(statusId, "Add at least one colour before applying.", "error");
+    return;
+  }
+
+  customPaletteColors = normalized;
+  const query = normalized.map((color) => `color=${encodeURIComponent(color)}`).join("&");
+  setControlStatus(statusId, "Updating custom palette...", "muted");
+
+  try {
+    const response = await fetch(`/api/setCustomPalette?${query}&select=1`);
+    const text = await response.text();
+    if (!response.ok) {
+      throw new Error(text || "Failed to update custom palette.");
+    }
+    log(text);
+    setControlStatus(statusId, "Custom palette applied.", "success");
+    const select = $("paletteSelect");
+    if (select && customPaletteIndex >= 0) {
+      select.value = String(customPaletteIndex);
+      apiQueue.add(`/api/setPalette?val=${customPaletteIndex}`, () => {
+        log("Custom palette selected.");
+      });
+    }
+    toggleCustomPaletteEditor(true);
+    await loadCustomPaletteDetails();
+  } catch (error) {
+    setControlStatus(statusId, error.message || "Unable to update custom palette.", "error");
+    log(`Custom palette error: ${error.message}`);
+  }
+}
+
+async function saveCustomPalette() {
+  const statusId = "customPaletteStatus";
+  const nameInput = $("inputCustomPaletteName");
+  const paletteName = normalizePaletteName(nameInput ? nameInput.value : "");
+  if (!paletteName) {
+    setControlStatus(statusId, "Enter a palette name before saving.", "error");
+    if (nameInput) {
+      nameInput.focus();
+    }
+    return;
+  }
+
+  const normalized = customPaletteColors
+    .map((color) => normalizeHexColor(color))
+    .filter(Boolean)
+    .slice(0, MAX_CUSTOM_PALETTE_COLORS);
+
+  if (!normalized.length) {
+    setControlStatus(statusId, "Add at least one colour before saving.", "error");
+    return;
+  }
+
+  const select = $("paletteSelect");
+  if (select) {
+    const exists = Array.from(select.options).some(
+      (option) => option.textContent && option.textContent.trim().toLowerCase() === paletteName.toLowerCase()
+    );
+    if (exists) {
+      setControlStatus(statusId, "A palette with that name already exists. Pick another name.", "error");
+      if (nameInput) {
+        nameInput.focus();
+        nameInput.select();
+      }
+      return;
+    }
+  }
+
+  const params = new URLSearchParams();
+  params.append("name", paletteName);
+  normalized.forEach((color) => params.append("color", color));
+  setControlStatus(statusId, `Saving "${paletteName}"...`, "muted");
+
+  try {
+    const response = await fetch(`/api/savePalette?${params.toString()}`);
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || "Failed to save palette.");
+    }
+    const result = await response.json().catch(() => ({}));
+    await loadPalettes();
+    const paletteIndex = typeof result.index === "number" ? result.index : null;
+    const nextSelect = $("paletteSelect");
+    if (typeof paletteIndex === "number" && nextSelect) {
+      nextSelect.value = String(paletteIndex);
+      toggleCustomPaletteEditor(paletteIndex === customPaletteIndex);
+      apiQueue.add(`/api/setPalette?val=${paletteIndex}`, () => {
+        log(`Palette changed to ${nextSelect.options[nextSelect.selectedIndex].text}`);
+      });
+    }
+    if (nameInput) {
+      nameInput.value = "";
+    }
+    const successName = (result && result.name) || paletteName;
+    setControlStatus(statusId, `Palette "${successName}" saved.`, "success");
+  } catch (error) {
+    setControlStatus(statusId, error.message || "Unable to save palette.", "error");
+    log(`Save palette error: ${error.message}`);
+  }
 }
 
 /************************************************
@@ -826,6 +1135,139 @@ function toggleAutomataControls(show) {
   updatePreviewParameters();
   setPreviewModeFromAnimation(currentAnimationIndex);
   toggleCommonControlsForAnimation(currentAnimationIndex);
+  bindCryptoTickerControls();
+}
+
+function toggleTextScrollerControls(show) {
+  const ids = [
+    "textModeContainer",
+    "textPrimaryContainer",
+    "textDirectionContainer",
+    "textGlyphOptionsContainer",
+    "textLeftContainer",
+    "textRightContainer",
+    "textSpeedContainer",
+    "cryptoTickerContainer",
+  ];
+  ids.forEach((id) => {
+    const element = $(id);
+    if (element) {
+      element.style.display = show ? "flex" : "none";
+      Array.from(element.querySelectorAll("input,select,button")).forEach((control) => {
+        control.disabled = !show;
+      });
+    }
+  });
+}
+
+/************************************************
+ * Crypto ticker (browser-side fetch -> text ticker)
+ ************************************************/
+function bindCryptoTickerControls() {
+  const startBtn = $("btnStartCryptoTicker");
+  const stopBtn = $("btnStopCryptoTicker");
+  if (startBtn && !startBtn.dataset.bound) {
+    startBtn.addEventListener("click", () => startCryptoTicker());
+    startBtn.dataset.bound = "1";
+  }
+  if (stopBtn && !stopBtn.dataset.bound) {
+    stopBtn.addEventListener("click", stopCryptoTicker);
+    stopBtn.dataset.bound = "1";
+  }
+}
+
+function parseCryptoList() {
+  const input = $("inputCryptoList");
+  if (!input || !input.value.trim()) {
+    return ["bitcoin", "ethereum", "solana", "dogecoin"];
+  }
+  return input.value
+    .split(",")
+    .map((id) => id.trim().toLowerCase())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function formatCryptoSymbol(id) {
+  return id.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3) || id.toUpperCase();
+}
+
+async function fetchCryptoPrices(ids) {
+  const statusId = "cryptoTickerStatus";
+  if (!ids.length) {
+    setControlStatus(statusId, "Add at least one coin id (e.g., bitcoin, ethereum).", "error");
+    return null;
+  }
+  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(
+    ids.join(",")
+  )}&vs_currencies=usd&precision=3`;
+  try {
+    const data = await fetchJson(url);
+    return data;
+  } catch (err) {
+    setControlStatus(statusId, `Crypto fetch failed: ${err.message}`, "error");
+    return null;
+  }
+}
+
+function buildCryptoTickerString(ids, priceData) {
+  const parts = [];
+  ids.forEach((id) => {
+    const entry = priceData[id];
+    if (!entry || typeof entry.usd !== "number") return;
+    const symbol = formatCryptoSymbol(id);
+    const price =
+      entry.usd >= 100 ? entry.usd.toFixed(0) : entry.usd >= 10 ? entry.usd.toFixed(2) : entry.usd.toFixed(3);
+    parts.push(`${symbol} - $${price}`);
+  });
+  return parts.join("  •  ");
+}
+
+async function applyCryptoTickerOnce() {
+  const statusId = "cryptoTickerStatus";
+  const ids = parseCryptoList();
+  setControlStatus(statusId, "Fetching prices...", "muted");
+  const prices = await fetchCryptoPrices(ids);
+  if (!prices) return;
+  const message = buildCryptoTickerString(ids, prices);
+  if (!message) {
+    setControlStatus(statusId, "No price data returned.", "error");
+    return;
+  }
+  // Force text ticker mode
+  apiQueue.add(`/api/setAnimation?val=${TEXT_TICKER_INDEX}`, () => {
+    currentAnimationIndex = TEXT_TICKER_INDEX;
+    toggleTextScrollerControls(true);
+    setPreviewModeFromAnimation(TEXT_TICKER_INDEX);
+    toggleCommonControlsForAnimation(TEXT_TICKER_INDEX);
+    log("Switched to TextTicker for crypto feed");
+  });
+  apiQueue.add(`/api/text/setMode?val=0`, () => {});
+  apiQueue.add(`/api/text/setMessage?slot=0&value=${encodeURIComponent(message)}`, () => {
+    setControlStatus(statusId, "Crypto ticker updated.", "success");
+  });
+  cryptoTickerLastUpdate = Date.now();
+}
+
+function startCryptoTicker() {
+  const statusId = "cryptoTickerStatus";
+  stopCryptoTicker(); // clear any existing interval
+  applyCryptoTickerOnce();
+  cryptoTickerInterval = setInterval(() => {
+    // avoid overlapping fetches
+    if (Date.now() - cryptoTickerLastUpdate < CRYPTO_REFRESH_MS / 2) return;
+    applyCryptoTickerOnce();
+  }, CRYPTO_REFRESH_MS);
+  setControlStatus(statusId, "Crypto ticker running.", "info");
+}
+
+function stopCryptoTicker() {
+  const statusId = "cryptoTickerStatus";
+  if (cryptoTickerInterval) {
+    clearInterval(cryptoTickerInterval);
+    cryptoTickerInterval = null;
+  }
+  setControlStatus(statusId, "Crypto ticker stopped.", "muted");
 }
 
 function toggleGameOfLifeControls(show) {
@@ -882,6 +1324,7 @@ function setupUIControls() {
   setHelpText("helpSpeed", defaultHelpText.speed);
   setHelpText("helpFade", defaultHelpText.fade);
   setHelpText("helpTail", defaultHelpText.tail);
+  bindCustomPaletteControls();
 
   bindSliderToApi("brightness", {
     sliderId: "sliderBrightness",
@@ -889,7 +1332,6 @@ function setupUIControls() {
     endpoint: "/api/setBrightness",
     min: 0,
     max: 255,
-    outputId: "outputBrightness",
     formatValue: (value) => Math.round(value),
   });
 
@@ -899,7 +1341,6 @@ function setupUIControls() {
     endpoint: "/api/setFadeAmount",
     min: 0,
     max: 255,
-    outputId: "outputFade",
     formatValue: (value) => Math.round(value),
   });
 
@@ -909,7 +1350,6 @@ function setupUIControls() {
     endpoint: "/api/setTailLength",
     min: 0,
     max: 20,
-    outputId: "outputTail",
     formatValue: (value) => Math.round(value),
   });
 
@@ -919,7 +1359,6 @@ function setupUIControls() {
     endpoint: "/api/setSpeed",
     min: 0,
     max: 100,
-    outputId: "outputSpeed",
     formatValue: (value) => `${Math.round(value)}%`,
     onValue: updatePreviewParameters,
   });
@@ -932,7 +1371,6 @@ function setupUIControls() {
     max: 100,
     toApi: (value) => (value / 100).toFixed(2),
     fromApi: (value) => Math.round(parseFloat(value) * 100),
-    outputId: "outputSpawn",
     formatValue: (value) => `${Math.round(value)}%`,
   });
 
@@ -948,7 +1386,6 @@ function setupUIControls() {
       if (isNaN(parsed)) return 1;
       return Math.round(((parsed - 1) / 5) + 1);
     },
-    outputId: "outputMaxFlakes",
     formatValue: (value) => Math.round(value),
   });
 
@@ -958,9 +1395,17 @@ function setupUIControls() {
     endpoint: "/api/setColumnSkip",
     min: 1,
     max: 20,
-    outputId: "outputColumnSkip",
     formatValue: (value) => Math.round(value),
     onValue: updatePreviewParameters,
+  });
+
+  bindSliderToApi("textSpeed", {
+    sliderId: "sliderTextSpeed",
+    numberId: "numTextSpeed",
+    endpoint: "/api/text/setSpeed",
+    min: 0,
+    max: 100,
+    formatValue: (value) => `${Math.round(value)}%`,
   });
 
   bindSliderToApi("automataPrimary", {
@@ -973,7 +1418,6 @@ function setupUIControls() {
       updateAutomataLabels();
       updatePreviewParameters();
     },
-    outputId: "outputAutomataPrimary",
     formatValue: (value) => Math.round(value),
   });
 
@@ -987,7 +1431,6 @@ function setupUIControls() {
       updateAutomataLabels();
       updatePreviewParameters();
     },
-    outputId: "outputAutomataSecondary",
     formatValue: (value) => Math.round(value),
   });
 
@@ -997,7 +1440,6 @@ function setupUIControls() {
     endpoint: "/api/gol/setHighlightWidth",
     min: 0,
     max: 4,
-    outputId: "outputHighlightWidth",
     formatValue: (value) => Math.round(value),
     onValue: updatePreviewParameters,
   });
@@ -1008,7 +1450,6 @@ function setupUIControls() {
     endpoint: "/api/gol/setSeedDensity",
     min: 5,
     max: 100,
-    outputId: "outputSeedDensity",
     formatValue: (value) => `${Math.round(value)}%`,
     onValue: updatePreviewParameters,
   });
@@ -1019,7 +1460,6 @@ function setupUIControls() {
     endpoint: "/api/gol/setMutation",
     min: 0,
     max: 30,
-    outputId: "outputMutationChance",
     formatValue: (value) => `${Math.round(value)}%`,
   });
 
@@ -1140,6 +1580,7 @@ function setupUIControls() {
     });
   }
 
+  setupTextControls();
   setupPanelControls();
   applyGameOfLifeLabels(false);
 }
@@ -1147,15 +1588,11 @@ function setupUIControls() {
 function setupPanelControls() {
   const panelCountSlider = $("sliderPanelCount");
   const numPanelCount = $("numPanelCount");
-  const panelCountOutput = $("outputPanelCount");
   if (panelCountSlider && numPanelCount) {
     const syncPanelCount = (raw) => {
       const clamped = clamp(parseInt(raw, 10) || 1, 1, 8);
       panelCountSlider.value = clamped;
       numPanelCount.value = clamped;
-      if (panelCountOutput) {
-        panelCountOutput.textContent = String(clamped);
-      }
       return clamped;
     };
     panelCountSlider.addEventListener("input", () => {
@@ -1167,16 +1604,13 @@ function setupPanelControls() {
   }
 
   const btnSetPanelCount = $("btnSetPanelCount");
-  if (btnSetPanelCount && numPanelCount) {
+  if (btnSetPanelCount && numPanelCount && panelCountSlider) {
     btnSetPanelCount.addEventListener("click", () => {
       let val = parseInt(numPanelCount.value, 10);
       if (isNaN(val)) val = 1;
       val = clamp(val, 1, 8);
       numPanelCount.value = val;
       panelCountSlider.value = val;
-      if (panelCountOutput) {
-        panelCountOutput.textContent = String(val);
-      }
       apiQueue.add(`/api/setPanelCount?val=${val}`);
     });
   }
@@ -1217,6 +1651,67 @@ function setupPanelControls() {
     }
   });
   setupPresetControls();
+}
+
+function setupTextControls() {
+  const modeSelect = $("selectTextMode");
+  if (modeSelect && !modeSelect.dataset.bound) {
+    modeSelect.addEventListener("change", () => {
+      const val = parseInt(modeSelect.value, 10);
+      apiQueue.add(`/api/text/setMode?val=${Number.isNaN(val) ? 0 : val}`);
+    });
+    modeSelect.dataset.bound = "1";
+  }
+
+  const directionSelect = $("selectTextDirection");
+  if (directionSelect && !directionSelect.dataset.bound) {
+    directionSelect.addEventListener("change", () => {
+      const val = parseInt(directionSelect.value, 10);
+      apiQueue.add(`/api/text/setDirection?val=${Number.isNaN(val) ? 0 : val}`);
+    });
+    directionSelect.dataset.bound = "1";
+  }
+
+  const mirrorChk = $("chkMirrorGlyphs");
+  if (mirrorChk && !mirrorChk.dataset.bound) {
+    mirrorChk.addEventListener("change", () => {
+      apiQueue.add(`/api/text/setMirror?val=${mirrorChk.checked ? 1 : 0}`);
+    });
+    mirrorChk.dataset.bound = "1";
+  }
+
+  const compactChk = $("chkCompactGlyphs");
+  if (compactChk && !compactChk.dataset.bound) {
+    compactChk.addEventListener("change", () => {
+      apiQueue.add(`/api/text/setCompact?val=${compactChk.checked ? 1 : 0}`);
+    });
+    compactChk.dataset.bound = "1";
+  }
+
+  const orderSelect = $("selectTextOrder");
+  if (orderSelect && !orderSelect.dataset.bound) {
+    orderSelect.addEventListener("change", () => {
+      const val = parseInt(orderSelect.value, 10);
+      apiQueue.add(`/api/text/setOrder?val=${Number.isNaN(val) ? 0 : val}`);
+    });
+    orderSelect.dataset.bound = "1";
+  }
+
+  const bindTextInput = (id, slot) => {
+    const input = $(id);
+    if (!input || input.dataset.bound) return;
+    const sendUpdate = debounce(() => {
+      const value = input.value ? input.value.trim() : "";
+      apiQueue.add(`/api/text/setMessage?slot=${slot}&value=${encodeURIComponent(value)}`);
+    }, 350);
+    input.addEventListener("input", sendUpdate);
+    input.addEventListener("change", sendUpdate);
+    input.dataset.bound = "1";
+  };
+
+  bindTextInput("inputTextPrimary", "primary");
+  bindTextInput("inputTextLeft", "left");
+  bindTextInput("inputTextRight", "right");
 }
 
 function setupPresetControls() {
@@ -1360,8 +1855,10 @@ async function loadAnimations() {
     select.value = currentAnimationIndex;
     toggleGameOfLifeControls(currentAnimationIndex === GAME_OF_LIFE_INDEX);
     toggleAutomataControls(currentAnimationIndex === STRANGE_LOOP_INDEX);
+    toggleTextScrollerControls(currentAnimationIndex === TEXT_TICKER_INDEX);
     setPreviewModeFromAnimation(currentAnimationIndex);
-  toggleCommonControlsForAnimation(currentAnimationIndex);
+    toggleCommonControlsForAnimation(currentAnimationIndex);
+    bindCryptoTickerControls();
     setControlStatus("animationStatus", "");
 
     if (!select.dataset.bound) {
@@ -1371,6 +1868,7 @@ async function loadAnimations() {
           currentAnimationIndex = val;
           toggleGameOfLifeControls(val === GAME_OF_LIFE_INDEX);
           toggleAutomataControls(val === STRANGE_LOOP_INDEX);
+          toggleTextScrollerControls(val === TEXT_TICKER_INDEX);
           setPreviewModeFromAnimation(val);
           toggleCommonControlsForAnimation(val);
           log(`Animation changed to ${select.options[select.selectedIndex].text}`);
@@ -1402,17 +1900,31 @@ async function loadPalettes() {
       select.appendChild(option);
     });
 
+    customPaletteIndex = data.palettes.findIndex(
+      (name) => typeof name === "string" && name.toLowerCase() === "custom"
+    );
+
     select.value = data.current;
     setControlStatus("paletteStatus", "");
 
     if (!select.dataset.bound) {
       select.addEventListener("change", () => {
         const val = parseInt(select.value, 10);
+        toggleCustomPaletteEditor(val === customPaletteIndex);
         apiQueue.add(`/api/setPalette?val=${val}`, () => {
           log(`Palette changed to ${select.options[select.selectedIndex].text}`);
         });
       });
       select.dataset.bound = "1";
+    }
+
+    toggleCustomPaletteEditor(parseInt(select.value, 10) === customPaletteIndex);
+
+    if (customPaletteIndex >= 0) {
+      await loadCustomPaletteDetails();
+    } else {
+      setControlStatus("customPaletteStatus", "");
+      renderCustomPaletteList();
     }
   } catch (error) {
     log(`Failed to load palettes: ${error.message}`);
@@ -1437,6 +1949,14 @@ async function fetchJson(url) {
     throw new Error(`${url} => ${response.status} ${response.statusText}`);
   }
   return response.json();
+}
+
+async function fetchText(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`${url} => ${response.status} ${response.statusText}`);
+  }
+  return response.text();
 }
 
 async function loadSettings() {
@@ -1568,14 +2088,56 @@ async function loadSettings() {
     }
 
     try {
+      const textConfig = await fetchJson("/api/text/getConfig");
+      if (textConfig) {
+        if (textConfig.mode !== undefined) {
+          const select = $("selectTextMode");
+          if (select) {
+            select.value = String(textConfig.mode);
+          }
+        }
+        if (textConfig.direction !== undefined) {
+          const select = $("selectTextDirection");
+          if (select) {
+            select.value = String(textConfig.direction);
+          }
+        }
+        if (textConfig.mirror !== undefined) {
+          const chk = $("chkMirrorGlyphs");
+          if (chk) chk.checked = !!textConfig.mirror;
+        }
+        if (textConfig.compact !== undefined) {
+          const chk = $("chkCompactGlyphs");
+          if (chk) chk.checked = !!textConfig.compact;
+        }
+        if (textConfig.reverse !== undefined) {
+          const select = $("selectTextOrder");
+          if (select) {
+            select.value = String(textConfig.reverse ? 1 : 0);
+          }
+        }
+        if (textConfig.speed !== undefined) {
+          applyBindingValue("textSpeed", textConfig.speed);
+        }
+        if (textConfig.primary !== undefined) {
+          setValue("inputTextPrimary", textConfig.primary);
+        }
+        if (textConfig.left !== undefined) {
+          setValue("inputTextLeft", textConfig.left);
+        }
+        if (textConfig.right !== undefined) {
+          setValue("inputTextRight", textConfig.right);
+        }
+      }
+    } catch (err) {
+      log(`Text config fetch failed: ${err.message}`);
+    }
+
+    try {
       const panelInfo = await fetchJson("/api/getPanelCount");
       if (panelInfo && panelInfo.panelCount !== undefined) {
         setValue("sliderPanelCount", panelInfo.panelCount);
         setValue("numPanelCount", panelInfo.panelCount);
-        const panelCountOutput = $("outputPanelCount");
-        if (panelCountOutput) {
-          panelCountOutput.textContent = String(panelInfo.panelCount);
-        }
       }
     } catch (err) {
       log(`Panel count fetch failed: ${err.message}`);
@@ -1619,32 +2181,16 @@ async function initializeControlPanel() {
 
   toggleGameOfLifeControls(currentAnimationIndex === GAME_OF_LIFE_INDEX);
   toggleAutomataControls(currentAnimationIndex === STRANGE_LOOP_INDEX);
+  toggleTextScrollerControls(currentAnimationIndex === TEXT_TICKER_INDEX);
   setPreviewModeFromAnimation(currentAnimationIndex);
   toggleCommonControlsForAnimation(currentAnimationIndex);
   updatePreviewParameters();
+
+  bindCryptoTickerControls();
+
   log("Control panel ready!");
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   initializeControlPanel();
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

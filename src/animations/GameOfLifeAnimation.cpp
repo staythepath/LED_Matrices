@@ -126,7 +126,12 @@ void GameOfLifeAnimation::setUpdateInterval(unsigned long intervalMs) {
 }
 
 void GameOfLifeAnimation::setSpeedMultiplier(float multiplier) {
-    _speedMultiplier = std::max(0.05f, std::min(multiplier, 30.0f));
+    float clamped = std::max(0.05f, std::min(multiplier, 30.0f));
+    if (clamped == _speedMultiplier) {
+        return;
+    }
+    _speedMultiplier = clamped;
+    recalculateSimultaneousInterval();
 }
 
 void GameOfLifeAnimation::setUsePalette(bool usePalette) {
@@ -270,13 +275,12 @@ void GameOfLifeAnimation::recalculateSweepInterval() {
     _sweepIntervalMs = static_cast<uint32_t>(interval);
 }
 void GameOfLifeAnimation::recalculateSimultaneousInterval() {
-    const float normalized = static_cast<float>(_speedPercent) / 100.0f;
-    const float eased = normalized * normalized * normalized;
-    const float minMs = 8.0f;
-    const float slowBase = static_cast<float>(_baseIntervalMs);
-    const float slowMs = std::max(slowBase * 4.0f, 600.0f);
-    const float blend = 1.0f - eased;
-    float interval = minMs + (slowMs - minMs) * blend;
+    if (_baseIntervalMs < 1UL) {
+        _baseIntervalMs = 1UL;
+    }
+    float interval = static_cast<float>(_baseIntervalMs);
+    float effectiveMultiplier = (_speedMultiplier <= 0.05f) ? 0.05f : _speedMultiplier;
+    interval /= effectiveMultiplier;
     if (interval < 1.0f) {
         interval = 1.0f;
     }
@@ -369,15 +373,13 @@ void GameOfLifeAnimation::update() {
     if (!_gridA || !_gridB) return;
 
     const uint32_t now = millis();
-    uint32_t sourceInterval = _baseIntervalMs;
+    uint32_t sourceInterval = (_updateMode == UpdateMode::Sweep) ? _sweepIntervalMs : _simultaneousIntervalMs;
+    uint32_t generationInterval = sourceInterval;
     if (_updateMode == UpdateMode::Sweep) {
-        sourceInterval = _sweepIntervalMs;
-    } else {
-        sourceInterval = _simultaneousIntervalMs;
+        generationInterval = std::max<uint32_t>(
+            1, static_cast<uint32_t>(static_cast<float>(sourceInterval) / _speedMultiplier)
+        );
     }
-    const uint32_t generationInterval = std::max<uint32_t>(
-        1, static_cast<uint32_t>(static_cast<float>(sourceInterval) / _speedMultiplier)
-    );
 
     if (_updateMode == UpdateMode::Sweep) {
         if (!_generationReady) {
@@ -410,6 +412,7 @@ void GameOfLifeAnimation::update() {
     } else {
         if ((now - _lastSweepMs) >= generationInterval || !_generationReady) {
             prepareNextGeneration();
+            _generationReady = true;
             applyFullFrame();
             finalizeGeneration();
             _lastSweepMs = now;
@@ -550,7 +553,9 @@ void GameOfLifeAnimation::finalizeGeneration() {
             updateClusterColors();
         }
     }
-    _generationReady = false;
+    if (_updateMode == UpdateMode::Sweep) {
+        _generationReady = false;
+    }
     _anyChangeThisPass = false;
     _mutationsAppliedThisGeneration = false;
     if (_colorPulseMode) {
