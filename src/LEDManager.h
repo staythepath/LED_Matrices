@@ -5,6 +5,8 @@
 #include <vector>
 #include <Arduino.h>
 #include <Preferences.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 // Up to 8 panels of 16×16
 static const int MAX_LEDS = 16 * 16 * 8;
@@ -137,6 +139,10 @@ public:
     bool loadPreset(const String& name, String& errorMessage);
     bool deletePreset(const String& name, String& errorMessage);
 
+    // Thread-safety helpers (shared with async web task)
+    bool lock(uint32_t timeoutMs = 250);
+    void unlock();
+
     int getPanelOrder() const { return panelOrder; }
 
 private:
@@ -259,6 +265,7 @@ private:
     String _textPrimary;
     String _textLeft;
     String _textRight;
+    SemaphoreHandle_t _mutex;
     Preferences _prefs;
     bool _prefsReady;
 

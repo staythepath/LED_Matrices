@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cmath>
 #include <cctype>
+#include <freertos/semphr.h>
 #include "LogManager.h"
 
 // Include Animation header files
@@ -60,6 +61,7 @@ LEDManager::LEDManager()
     , _textPrimary("[TIME]")
     , _textLeft("LEFT")
     , _textRight("[DATE]")
+    , _mutex(nullptr)
     , _prefsReady(false)
 {
     createPalettes();
@@ -82,6 +84,10 @@ LEDManager::LEDManager()
     _golMutationChance = 0;
     _golUniformBirths = false;
     _golBirthColor = CRGB::White;
+
+    if (_mutex == nullptr) {
+        _mutex = xSemaphoreCreateRecursiveMutex();
+    }
 }
 
 void LEDManager::begin() {
@@ -205,6 +211,22 @@ void LEDManager::update() {
 
 void LEDManager::show() {
     FastLED.show();
+}
+
+bool LEDManager::lock(uint32_t timeoutMs) {
+    if (_mutex == nullptr) {
+        _mutex = xSemaphoreCreateRecursiveMutex();
+        if (_mutex == nullptr) {
+            return true; // Best effort if allocation fails
+        }
+    }
+    return xSemaphoreTakeRecursive(_mutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE;
+}
+
+void LEDManager::unlock() {
+    if (_mutex) {
+        xSemaphoreGiveRecursive(_mutex);
+    }
 }
 
 void LEDManager::configureCurrentAnimation() {
@@ -809,17 +831,16 @@ uint8_t LEDManager::getBrightness() const {
 }
 
 void LEDManager::setPalette(int idx){
-    if(idx>=0 && idx<(int)ALL_PALETTES.size()){
-        currentPalette= idx;
-        Serial.printf("Palette %d (%s) selected.\n", idx, PALETTE_NAMES[idx].c_str());
-        if(_currentAnimationIndex==0 && _currentAnimation){
-            TrafficAnimation* t = static_cast<TrafficAnimation*>(_currentAnimation);
-            t->setCurrentPalette(currentPalette);
-        }
-        else if(_currentAnimationIndex==1 && _currentAnimation){
-            BlinkAnimation* bA = static_cast<BlinkAnimation*>(_currentAnimation);
-            bA->setPalette(&ALL_PALETTES[currentPalette]);
-        }
+    if (idx < 0 || idx >= static_cast<int>(ALL_PALETTES.size())) {
+        return;
+    }
+
+    currentPalette = idx;
+    Serial.printf("Palette %d (%s) selected.\n", idx, PALETTE_NAMES[idx].c_str());
+
+    // Reconfigure the active animation so palette-driven rendering updates immediately.
+    if (_currentAnimation) {
+        configureCurrentAnimation();
     }
 }
 

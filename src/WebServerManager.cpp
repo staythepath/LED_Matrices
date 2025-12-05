@@ -24,29 +24,17 @@
 // then declare it as extern so we can use it here
 extern LEDManager ledManager;
 
-// Create a global mutex for thread-safe access to LEDManager
-static SemaphoreHandle_t ledManagerMutex = nullptr;
-
 // Constructor
 WebServerManager::WebServerManager(int port)
-    : _server(port) {
-    if (ledManagerMutex == nullptr) {
-        ledManagerMutex = xSemaphoreCreateRecursiveMutex();
-    }
-}
+    : _server(port) {}
 
-// Helper function to safely access LEDManager
+// Helper function to safely access LEDManager (shared with loop task)
 static bool acquireLEDManager(uint32_t timeout = 250) {
-    if (ledManagerMutex == nullptr) {
-        return true;
-    }
-    return xSemaphoreTakeRecursive(ledManagerMutex, pdMS_TO_TICKS(timeout)) == pdTRUE;
+    return ledManager.lock(timeout);
 }
 
 static void releaseLEDManager() {
-    if (ledManagerMutex != nullptr) {
-        xSemaphoreGiveRecursive(ledManagerMutex);
-    }
+    ledManager.unlock();
 }
 
 static String jsonEscape(const String& input) {

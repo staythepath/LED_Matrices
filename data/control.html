@@ -118,6 +118,26 @@
                 </div>
               </div>
 
+              <div class="control-row game-of-life-control" id="golPresetContainer" style="display: none;">
+                <div class="control-info">
+                  <label for="selectGoLPreset">GoL Presets</label>
+                  <p>Quickly load interesting B/S rule sets with tuned settings.</p>
+                </div>
+                <div class="control-input input-pair">
+                  <select id="selectGoLPreset">
+                    <option value="">Choose a preset...</option>
+                    <option value="classic">Classic Conway (B3/S23)</option>
+                    <option value="highlife">HighLife (B36/S23)</option>
+                    <option value="daynight">Day & Night (B367/S235)</option>
+                    <option value="morley">Morley (B3678/S235)</option>
+                    <option value="maze">Maze (B3/S0123)</option>
+                    <option value="seeds">Seeds (B2/S)</option>
+                    <option value="life_no_death">Life w/o Death (B3/S45678)</option>
+                  </select>
+                  <button id="btnApplyGoLPreset">Apply</button>
+                </div>
+              </div>
+
               <div class="control-row game-of-life-control" id="golRuleContainer" style="display: none;">
                 <div class="control-info">
                   <label for="inputGoLRule">Rule (B/S)</label>

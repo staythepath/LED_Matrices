@@ -80,6 +80,11 @@ void setup() {
 
 void loop() {
     telnetManager.handle();
-    ledManager.update();
-    ledManager.show();
+    if (ledManager.lock(5)) { // avoid racing web callbacks that swap animations
+        ledManager.update();
+        ledManager.show();
+        ledManager.unlock();
+    } else {
+        delay(1);
+    }
 }

@@ -8,6 +8,7 @@ let currentAutomataMode = 0;
 let cryptoTickerInterval = null;
 let cryptoTickerLastUpdate = 0;
 const CRYPTO_REFRESH_MS = 60_000;
+let cryptoTickerActive = false;
 const defaultLabelText = {
   speed: "Speed:",
   brightness: "Brightness:",
@@ -37,10 +38,131 @@ const MAX_CUSTOM_PALETTE_COLORS = 16;
 let customPaletteIndex = -1;
 let customPaletteColors = ["#FF0000", "#00FF00", "#0000FF", "#FFFFFF"];
 
+// Debounced live preview for the custom palette so animation updates while editing
+const previewCustomPalette = debounce(() => {
+  const normalized = customPaletteColors
+    .map((color) => normalizeHexColor(color))
+    .filter(Boolean)
+    .slice(0, MAX_CUSTOM_PALETTE_COLORS);
+
+  if (!normalized.length) {
+    return;
+  }
+
+  const query = normalized.map((color) => `color=${encodeURIComponent(color)}`).join("&");
+  const select = $("paletteSelect");
+  if (select && customPaletteIndex >= 0) {
+    select.value = String(customPaletteIndex);
+  }
+  apiQueue.add(`/api/setCustomPalette?${query}&select=1`, () => {
+    if (select && customPaletteIndex >= 0) {
+      select.value = String(customPaletteIndex);
+    }
+    toggleCustomPaletteEditor(true);
+  });
+}, 250);
+
 const golModeDescriptions = {
   0: "Sweep: Cursor scans the grid, updating one column at a time with the sweep highlight.",
   1: "Simultaneous: Updates the entire board together each tick with no sweep cursor.",
   2: "Fade Only: Steps generations together while easing brightness in and out.",
+};
+
+// Curated Game of Life presets tuned for the 32x16 matrix
+const golPresets = {
+  classic: {
+    label: "Classic Conway",
+    rule: "B3/S23",
+    updateMode: 0,
+    neighborMode: 1,
+    wrap: 1,
+    clusterMode: 1, // size
+    seedDensity: 33,
+    mutation: 0,
+    columnSkip: 6,
+    highlightWidth: 2,
+    uniformBirths: false,
+  },
+  highlife: {
+    label: "HighLife",
+    rule: "B36/S23",
+    updateMode: 1,
+    neighborMode: 1,
+    wrap: 1,
+    clusterMode: 2, // age
+    seedDensity: 35,
+    mutation: 1,
+    columnSkip: 5,
+    highlightWidth: 2,
+    uniformBirths: false,
+  },
+  daynight: {
+    label: "Day & Night",
+    rule: "B367/S235",
+    updateMode: 1,
+    neighborMode: 1,
+    wrap: 1,
+    clusterMode: 3, // shape
+    seedDensity: 42,
+    mutation: 2,
+    columnSkip: 5,
+    highlightWidth: 2,
+    uniformBirths: false,
+  },
+  morley: {
+    label: "Morley",
+    rule: "B3678/S235",
+    updateMode: 2,
+    neighborMode: 1,
+    wrap: 1,
+    clusterMode: 1,
+    seedDensity: 38,
+    mutation: 3,
+    columnSkip: 4,
+    highlightWidth: 2,
+    uniformBirths: false,
+  },
+  maze: {
+    label: "Maze",
+    rule: "B3/S0123",
+    updateMode: 0,
+    neighborMode: 1,
+    wrap: 1,
+    clusterMode: 4, // stable ID
+    seedDensity: 28,
+    mutation: 0,
+    columnSkip: 8,
+    highlightWidth: 1,
+    uniformBirths: true,
+    birthColor: "#FFFFFF",
+  },
+  seeds: {
+    label: "Seeds",
+    rule: "B2/S",
+    updateMode: 1,
+    neighborMode: 1,
+    wrap: 1,
+    clusterMode: 0,
+    seedDensity: 18,
+    mutation: 0,
+    columnSkip: 6,
+    highlightWidth: 2,
+    uniformBirths: false,
+  },
+  life_no_death: {
+    label: "Life w/o Death",
+    rule: "B3/S45678",
+    updateMode: 1,
+    neighborMode: 1,
+    wrap: 1,
+    clusterMode: 0,
+    seedDensity: 12,
+    mutation: 0,
+    columnSkip: 6,
+    highlightWidth: 1,
+    uniformBirths: true,
+    birthColor: "#FFCC66",
+  },
 };
 
 const automataDescriptors = {
@@ -608,6 +730,7 @@ function renderCustomPaletteList() {
       customPaletteColors[index] = normalized;
       hexInput.value = normalized;
       setControlStatus("customPaletteStatus", "");
+      previewCustomPalette();
     });
 
     hexInput.addEventListener("change", () => {
@@ -617,6 +740,7 @@ function renderCustomPaletteList() {
         hexInput.value = normalized;
         colorInput.value = normalized;
         setControlStatus("customPaletteStatus", "");
+        previewCustomPalette();
       } else {
         hexInput.value = customPaletteColors[index];
         setControlStatus("customPaletteStatus", "Use hex colours like #FF6600.", "error");
@@ -629,6 +753,7 @@ function renderCustomPaletteList() {
       }
       customPaletteColors.splice(index, 1);
       renderCustomPaletteList();
+      previewCustomPalette();
     });
 
     if (customPaletteColors.length <= 1) {
@@ -657,6 +782,7 @@ function bindCustomPaletteControls() {
       const last = customPaletteColors[customPaletteColors.length - 1] || "#FFFFFF";
       customPaletteColors.push(last);
       renderCustomPaletteList();
+      previewCustomPalette();
     });
     addButton.dataset.bound = "1";
   }
@@ -1068,6 +1194,65 @@ function updateGoLModeUI(mode) {
   }
 }
 
+function applyGoLPreset(key) {
+  const preset = golPresets[key];
+  if (!preset) {
+    return;
+  }
+
+  // Update UI controls
+  const ruleInput = $("inputGoLRule");
+  if (ruleInput) {
+    ruleInput.value = preset.rule;
+  }
+  const modeSelect = $("selectGoLMode");
+  if (modeSelect) {
+    modeSelect.value = String(preset.updateMode);
+    updateGoLModeUI(preset.updateMode);
+  }
+  const neighborSelect = $("selectGoLNeighbor");
+  if (neighborSelect) {
+    neighborSelect.value = String(preset.neighborMode);
+  }
+  const wrapSelect = $("selectGoLWrap");
+  if (wrapSelect) {
+    wrapSelect.value = preset.wrap ? "1" : "0";
+  }
+  const clusterSelect = $("selectGoLCluster");
+  if (clusterSelect) {
+    clusterSelect.value = String(preset.clusterMode);
+  }
+  applyBindingValue("golSeedDensity", preset.seedDensity);
+  applyBindingValue("golMutationChance", preset.mutation);
+  applyBindingValue("columnSkip", preset.columnSkip);
+  applyBindingValue("gofHighlightWidth", preset.highlightWidth);
+
+  const uniformChk = $("chkUniformBirths");
+  if (uniformChk) {
+    uniformChk.checked = !!preset.uniformBirths;
+  }
+  if (preset.birthColor && $("inputUniformBirthColor")) {
+    $("inputUniformBirthColor").value = preset.birthColor;
+  }
+
+  updatePreviewParameters();
+
+  // Send to device
+  apiQueue.add(`/api/gol/setRules?val=${encodeURIComponent(preset.rule)}`);
+  apiQueue.add(`/api/gol/setUpdateMode?val=${preset.updateMode}`);
+  apiQueue.add(`/api/gol/setNeighborMode?val=${preset.neighborMode}`);
+  apiQueue.add(`/api/gol/setWrapEdges?val=${preset.wrap ? 1 : 0}`);
+  apiQueue.add(`/api/gol/setClusterMode?val=${preset.clusterMode}`);
+  apiQueue.add(`/api/gol/setSeedDensity?val=${preset.seedDensity}`);
+  apiQueue.add(`/api/gol/setMutation?val=${preset.mutation}`);
+  apiQueue.add(`/api/setColumnSkip?val=${preset.columnSkip}`);
+  apiQueue.add(`/api/gol/setHighlightWidth?val=${preset.highlightWidth}`);
+  apiQueue.add(`/api/gol/setUniformBirths?val=${preset.uniformBirths ? 1 : 0}`);
+  if (preset.uniformBirths && preset.birthColor) {
+    apiQueue.add(`/api/gol/setBirthColor?hex=${encodeURIComponent(preset.birthColor)}`);
+  }
+}
+
 function updateAutomataLabels() {
   const meta = automataDescriptors[currentAutomataMode] || automataDescriptors[0];
   const primarySlider = $("sliderAutomataPrimary");
@@ -1226,9 +1411,11 @@ function buildCryptoTickerString(ids, priceData) {
 async function applyCryptoTickerOnce() {
   const statusId = "cryptoTickerStatus";
   const ids = parseCryptoList();
+  if (!cryptoTickerActive) return;
   setControlStatus(statusId, "Fetching prices...", "muted");
   const prices = await fetchCryptoPrices(ids);
   if (!prices) return;
+  if (!cryptoTickerActive) return;
   const message = buildCryptoTickerString(ids, prices);
   if (!message) {
     setControlStatus(statusId, "No price data returned.", "error");
@@ -1236,6 +1423,7 @@ async function applyCryptoTickerOnce() {
   }
   // Force text ticker mode
   apiQueue.add(`/api/setAnimation?val=${TEXT_TICKER_INDEX}`, () => {
+    if (!cryptoTickerActive) return;
     currentAnimationIndex = TEXT_TICKER_INDEX;
     toggleTextScrollerControls(true);
     setPreviewModeFromAnimation(TEXT_TICKER_INDEX);
@@ -1244,6 +1432,7 @@ async function applyCryptoTickerOnce() {
   });
   apiQueue.add(`/api/text/setMode?val=0`, () => {});
   apiQueue.add(`/api/text/setMessage?slot=0&value=${encodeURIComponent(message)}`, () => {
+    if (!cryptoTickerActive) return;
     setControlStatus(statusId, "Crypto ticker updated.", "success");
   });
   cryptoTickerLastUpdate = Date.now();
@@ -1252,6 +1441,7 @@ async function applyCryptoTickerOnce() {
 function startCryptoTicker() {
   const statusId = "cryptoTickerStatus";
   stopCryptoTicker(); // clear any existing interval
+   cryptoTickerActive = true;
   applyCryptoTickerOnce();
   cryptoTickerInterval = setInterval(() => {
     // avoid overlapping fetches
@@ -1267,6 +1457,7 @@ function stopCryptoTicker() {
     clearInterval(cryptoTickerInterval);
     cryptoTickerInterval = null;
   }
+  cryptoTickerActive = false;
   setControlStatus(statusId, "Crypto ticker stopped.", "muted");
 }
 
@@ -1580,6 +1771,22 @@ function setupUIControls() {
     });
   }
 
+  const presetSelect = $("selectGoLPreset");
+  const presetButton = $("btnApplyGoLPreset");
+  const applyPresetFromSelect = () => {
+    const key = presetSelect ? presetSelect.value : "";
+    if (key) {
+      applyGoLPreset(key);
+    }
+  };
+  if (presetSelect) {
+    presetSelect.addEventListener("change", applyPresetFromSelect);
+  }
+  if (presetButton && !presetButton.dataset.bound) {
+    presetButton.addEventListener("click", applyPresetFromSelect);
+    presetButton.dataset.bound = "1";
+  }
+
   setupTextControls();
   setupPanelControls();
   applyGameOfLifeLabels(false);
@@ -1864,6 +2071,9 @@ async function loadAnimations() {
     if (!select.dataset.bound) {
       select.addEventListener("change", () => {
         const val = parseInt(select.value, 10);
+        if (val !== TEXT_TICKER_INDEX) {
+          stopCryptoTicker();
+        }
         apiQueue.add(`/api/setAnimation?val=${val}`, () => {
           currentAnimationIndex = val;
           toggleGameOfLifeControls(val === GAME_OF_LIFE_INDEX);
