@@ -168,7 +168,7 @@ void TelnetManager::getBrightness(){
 
 void TelnetManager::setTailLength(int value){
     if(value >=1 && value <=30){
-        _ledManager->setFadeAmount(value);
+        _ledManager->setTailLength(value);
         _telnetClient.printf("Tail length set to %d.\n", value);
         Serial.printf("Tail length set to %d.\n", value);
     }
@@ -178,8 +178,8 @@ void TelnetManager::setTailLength(int value){
 }
 
 void TelnetManager::getTailLength(){
-    int fade = _ledManager->getFadeAmount();
-    _telnetClient.printf("Current Tail Length: %d\n", fade);
+    int tail = _ledManager->getTailLength();
+    _telnetClient.printf("Current Tail Length: %d\n", tail);
 }
 
 void TelnetManager::setSpawnRate(float rate){
@@ -269,13 +269,13 @@ void TelnetManager::getRotation(String panel){
 
 
 void TelnetManager::setSpeed(unsigned long speed){
-    if(speed >=10 && speed <=60000){
+    if(speed >=3 && speed <=1500){
         _ledManager->setUpdateSpeed(speed);
         _telnetClient.printf("LED update speed set to %lu ms.\n", speed);
         Serial.printf("LED update speed set to %lu ms.\n", speed);
     }
     else{
-        _telnetClient.println("Invalid speed value. Enter a number between 10 and 60000.");
+        _telnetClient.println("Invalid speed value. Enter a number between 3 and 1500.");
     }
 }
 
@@ -304,7 +304,7 @@ void TelnetManager::showHelp(){
     _telnetClient.println("  ROTATE PANEL2 <0/90/180/270> - Rotate Panel2");
     _telnetClient.println("  GET ROTATION PANEL1 - Get Panel1 rotation");
     _telnetClient.println("  GET ROTATION PANEL2 - Get Panel2 rotation");
-    _telnetClient.println("  SPEED <ms> - Set LED update speed");
+    _telnetClient.println("  SPEED <ms> - Set LED update speed (3-1500)");
     _telnetClient.println("  GET SPEED - Get LED update speed");
     _telnetClient.println("  HELP - Show this help message");
 }

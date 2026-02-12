@@ -4,138 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LED Control Panel</title>
-    <!-- Force cache refresh -->
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <!-- External CSS -->
     <link rel="stylesheet" href="/css/styles.css">
-    <style>
-      /* Additional control-panel specific styles */
-      .slider-container {
-        display: flex;
-        align-items: center;
-        margin: 15px 0;
-      }
-      
-      .slider-container label {
-        width: 120px;
-        font-weight: bold;
-        color: var(--secondary, #64748b);
-      }
-      
-      .slider-container input[type="range"] {
-        margin: 0 15px;
-        flex: 1;
-        height: 6px;
-        border-radius: 3px;
-        background: rgba(255,255,255,0.1);
-      }
-      
-      .slider-container input[type="number"] {
-        width: 60px;
-        background: rgba(255,255,255,0.05);
-        border: 1px solid rgba(255,255,255,0.1);
-        color: var(--on-surface, #f8fafc);
-        padding: 5px;
-        border-radius: 4px;
-      }
-      
-      .dropdown-container {
-        margin: 15px 0;
-        display: flex;
-        align-items: center;
-      }
-      
-      .dropdown-container label {
-        width: 120px;
-        font-weight: bold;
-        color: var(--secondary, #64748b);
-      }
-      
-      select {
-        background: rgba(255,255,255,0.05);
-        border: 1px solid rgba(255,255,255,0.1);
-        color: var(--on-surface, #f8fafc);
-        padding: 8px;
-        border-radius: 4px;
-      }
-      
-      button {
-        background: var(--primary, #38bdf8);
-        color: #000;
-        border: none;
-        padding: 8px 16px;
-        border-radius: 4px;
-        cursor: pointer;
-        margin-left: 10px;
-        transition: all 0.2s;
-      }
-      
-      button:hover {
-        background: rgba(56, 189, 248, 0.8);
-        transform: translateY(-1px);
-      }
-      
-      .section-title {
-        margin-top: 0;
-        color: var(--primary, #38bdf8);
-      }
-      
-      /* Log container specific to control panel */
-      .log-container {
-        height: 300px;
-        resize: vertical;
-        overflow-y: auto;
-        background: #0a0a0a;
-        border: 1px solid #333;
-        border-radius: 8px;
-        padding: 10px;
-        font-family: monospace;
-        margin-top: 10px;
-        color: #eee;
-      }
-      
-      .two-columns {
-        display: flex;
-        justify-content: space-between;
-      }
-      
-      .grid-layout {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 10px;
-      }
-      
-      .settings-card {
-        padding: 20px;
-        border: 1px solid #ddd;
-        border-radius: 10px;
-        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-      }
-      
-      .log-section {
-        padding: 20px;
-        border: 1px solid #ddd;
-        border-radius: 10px;
-        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-      }
-      
-      .panel-rotation-controls {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: space-between;
-      }
-      
-      .rotation-control {
-        margin: 10px;
-      }
-      
-      .control-group {
-        display: flex;
-        align-items: center;
-      }
-    </style>
   </head>
   <body>
     <nav>
@@ -149,136 +21,308 @@
     </nav>
 
     <div class="container">
-      <div class="card">
-        <h1>LED Matrix Control Panel</h1>
-        
-        <!-- Two-column layout for main controls -->
-        <div class="two-columns">
-          <!-- Left column - Animation & Visual settings combined -->
-          <div class="settings-card">
-            <h2>Animation & Visual Settings</h2>
-            
-            <div class="dropdown-container">
-              <label for="selAnimation">Animation:</label>
-              <select id="selAnimation"></select>
-            </div>
-            
-            <div class="dropdown-container">
-              <label for="paletteSelect">Color Palette:</label>
-              <select id="paletteSelect"></select>
-            </div>
-            
-            <!-- Speed slider -->
-            <div class="slider-container">
-              <label for="sliderSpeed">Speed:</label>
+      <header class="page-header">
+        <div>
+          <h1>LED Matrix Control Panel</h1>
+          <p>Live controls for visuals, math animations, and panel layout.</p>
+        </div>
+        <div class="header-pill" id="connectionPill">Connecting...</div>
+      </header>
+
+      <div class="layout-grid">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Core Controls</h2>
+            <p>These apply to every animation.</p>
+          </div>
+
+          <div class="control-row">
+            <label for="selAnimation">Animation</label>
+            <select id="selAnimation"></select>
+          </div>
+
+          <div class="control-row">
+            <label for="paletteSelect">Palette</label>
+            <select id="paletteSelect"></select>
+          </div>
+
+          <div class="control-row">
+            <label for="sliderSpeed">Frame Interval (ms)</label>
+            <div class="range-wrap">
               <input type="range" id="sliderSpeed" min="0" max="100" step="1" value="10">
               <input type="number" id="txtSpeed" min="3" max="1500" step="1" value="10">
             </div>
-            
-            <!-- Brightness -->
-            <div class="slider-container">
-              <label for="sliderBrightness">Brightness:</label>
+          </div>
+
+          <div class="control-row">
+            <label for="sliderBrightness">Brightness</label>
+            <div class="range-wrap">
               <input type="range" id="sliderBrightness" min="0" max="255" value="30">
               <input type="number" id="numBrightness" min="0" max="255" value="30">
             </div>
-            
-            <!-- Visual effect settings -->
-            <h3>Visual Effects</h3>
-            
-            <!-- Fade Amount -->
-            <div class="slider-container">
-              <label for="sliderFade">Fade Amount:</label>
-              <input type="range" id="sliderFade" min="0" max="200" value="20">
-              <input type="number" id="numFade" min="0" max="200" value="20">
-            </div>
-            
-            <!-- Tail Length -->
-            <div class="slider-container">
-              <label for="sliderTail">Tail Length:</label>
-              <input type="range" id="sliderTail" min="0" max="20" value="3">
-              <input type="number" id="numTail" min="0" max="20" value="3">
-            </div>
-            
-            <!-- Spawn Rate -->
-            <div class="slider-container">
-              <label for="sliderSpawn">Spawn Rate:</label>
-              <input type="range" id="sliderSpawn" min="1" max="100" value="20">
-              <input type="number" id="numSpawn" min="1" max="100" value="20">
-            </div>
-            
-            <!-- Max Flakes -->
-            <div class="slider-container">
-              <label for="sliderMaxFlakes">Max Flakes:</label>
-              <input type="range" id="sliderMaxFlakes" min="1" max="100" value="20">
-              <input type="number" id="numMaxFlakes" min="1" max="100" value="20">
+          </div>
+
+          <div class="panel-subheader" data-anim="Traffic">Visual Trails (Traffic)</div>
+
+          <div class="control-row" data-anim="Traffic">
+            <label for="sliderSpawn">Spawn Chance</label>
+            <div class="range-wrap">
+              <input type="range" id="sliderSpawn" min="0" max="1" step="0.01" value="0.2">
+              <input type="number" id="numSpawn" min="0" max="1" step="0.01" value="0.2">
             </div>
           </div>
-          
-          <!-- Right column - Panel configuration and logs -->
-          <div class="settings-card">
-            <h2>Panel Configuration</h2>
-            
-            <!-- Panel Count -->
-            <div class="slider-container">
-              <label for="sliderPanelCount">Panel Count:</label>
-              <input type="range" id="sliderPanelCount" min="1" max="2" value="2">
-              <input type="number" id="numPanelCount" min="1" max="2" value="2">
+
+          <div class="control-row" data-anim="Traffic">
+            <label for="sliderMaxFlakes">Max Vehicles</label>
+            <div class="range-wrap">
+              <input type="range" id="sliderMaxFlakes" min="10" max="500" step="1" value="50">
+              <input type="number" id="numMaxFlakes" min="10" max="500" step="1" value="50">
+            </div>
+          </div>
+
+          <div class="control-row" data-anim="Traffic">
+            <label for="sliderTail">Trail Length</label>
+            <div class="range-wrap">
+              <input type="range" id="sliderTail" min="1" max="30" step="1" value="3">
+              <input type="number" id="numTail" min="1" max="30" step="1" value="3">
+            </div>
+          </div>
+
+          <div class="control-row" data-anim="Traffic">
+            <label for="sliderFade">Trail Fade</label>
+            <div class="range-wrap">
+              <input type="range" id="sliderFade" min="0" max="255" step="1" value="20">
+              <input type="number" id="numFade" min="0" max="255" step="1" value="20">
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Animation Lab</h2>
+            <p>Controls update based on the active animation.</p>
+          </div>
+
+          <div class="anim-group" data-anim="GameOfLife">
+            <div class="panel-subheader">Life Engine</div>
+            <div class="control-row">
+              <label for="lifeRule">Rule Set</label>
+              <select id="lifeRule"></select>
+            </div>
+            <div class="control-row">
+              <label for="lifeDensity">Seed Density</label>
+              <div class="range-wrap">
+                <input type="range" id="lifeDensity" min="0" max="100" step="1" value="33">
+                <input type="number" id="lifeDensityVal" min="0" max="100" step="1" value="33">
+              </div>
+            </div>
+            <div class="control-row">
+              <label for="lifeStagnation">Reset After Stall</label>
+              <div class="range-wrap">
+                <input type="range" id="lifeStagnation" min="5" max="250" step="1" value="45">
+                <input type="number" id="lifeStagnationVal" min="5" max="250" step="1" value="45">
+              </div>
+            </div>
+            <div class="control-row">
+              <label for="lifeColorMode">Color Mode</label>
+              <select id="lifeColorMode">
+                <option value="0">Solid</option>
+                <option value="1">Age Palette</option>
+                <option value="2">Age Hue</option>
+              </select>
+            </div>
+            <div class="toggle-row">
+              <label for="lifeWrap">Wrap Edges</label>
+              <input type="checkbox" id="lifeWrap">
+            </div>
+            <div class="button-row">
+              <button id="lifeReseed">Reseed</button>
+            </div>
+          </div>
+
+          <div class="anim-group" data-anim="LangtonsAnt">
+            <div class="panel-subheader">Langton's Ant</div>
+            <div class="control-row">
+              <label for="antRule">Rule Pattern</label>
+              <input type="text" id="antRule" value="LR" maxlength="8">
+            </div>
+            <div class="control-row">
+              <label for="antCount">Ant Count</label>
+              <div class="range-wrap">
+                <input type="range" id="antCount" min="1" max="6" step="1" value="1">
+                <input type="number" id="antCountVal" min="1" max="6" step="1" value="1">
+              </div>
+            </div>
+            <div class="control-row">
+              <label for="antSteps">Steps Per Frame</label>
+              <div class="range-wrap">
+                <input type="range" id="antSteps" min="1" max="50" step="1" value="8">
+                <input type="number" id="antStepsVal" min="1" max="50" step="1" value="8">
+              </div>
+            </div>
+            <div class="toggle-row">
+              <label for="antWrap">Wrap Edges</label>
+              <input type="checkbox" id="antWrap" checked>
+            </div>
+          </div>
+
+          <div class="anim-group" data-anim="SierpinskiCarpet">
+            <div class="panel-subheader">Recursive Carpet</div>
+            <div class="control-row">
+              <label for="carpetDepth">Recursion Depth</label>
+              <div class="range-wrap">
+                <input type="range" id="carpetDepth" min="1" max="6" step="1" value="4">
+                <input type="number" id="carpetDepthVal" min="1" max="6" step="1" value="4">
+              </div>
+            </div>
+            <div class="control-row">
+              <label for="carpetShift">Color Drift</label>
+              <div class="range-wrap">
+                <input type="range" id="carpetShift" min="1" max="20" step="1" value="2">
+                <input type="number" id="carpetShiftVal" min="1" max="20" step="1" value="2">
+              </div>
+            </div>
+            <div class="toggle-row">
+              <label for="carpetInvert">Invert Pattern</label>
+              <input type="checkbox" id="carpetInvert">
+            </div>
+          </div>
+
+          <div class="anim-group" data-anim="Firework">
+            <div class="panel-subheader">Fireworks</div>
+            <div class="control-row">
+              <label for="fireworkMax">Max Bursts</label>
+              <div class="range-wrap">
+                <input type="range" id="fireworkMax" min="1" max="25" step="1" value="10">
+                <input type="number" id="fireworkMaxVal" min="1" max="25" step="1" value="10">
+              </div>
+            </div>
+            <div class="control-row">
+              <label for="fireworkParticles">Particles Per Burst</label>
+              <div class="range-wrap">
+                <input type="range" id="fireworkParticles" min="10" max="120" step="1" value="40">
+                <input type="number" id="fireworkParticlesVal" min="10" max="120" step="1" value="40">
+              </div>
+            </div>
+            <div class="control-row">
+              <label for="fireworkGravity">Gravity</label>
+              <div class="range-wrap">
+                <input type="range" id="fireworkGravity" min="0.01" max="0.5" step="0.01" value="0.15">
+                <input type="number" id="fireworkGravityVal" min="0.01" max="0.5" step="0.01" value="0.15">
+              </div>
+            </div>
+            <div class="control-row">
+              <label for="fireworkLaunch">Launch Chance</label>
+              <div class="range-wrap">
+                <input type="range" id="fireworkLaunch" min="0.01" max="1" step="0.01" value="0.15">
+                <input type="number" id="fireworkLaunchVal" min="0.01" max="1" step="0.01" value="0.15">
+              </div>
+            </div>
+          </div>
+
+          <div class="anim-group" data-anim="RainbowWave">
+            <div class="panel-subheader">Rainbow Wave</div>
+            <div class="control-row">
+              <label for="rainbowHueScale">Hue Scale</label>
+              <div class="range-wrap">
+                <input type="range" id="rainbowHueScale" min="1" max="12" step="1" value="4">
+                <input type="number" id="rainbowHueScaleVal" min="1" max="12" step="1" value="4">
+              </div>
+            </div>
+          </div>
+
+          <div class="anim-group" data-anim="Blink">
+            <div class="empty-state">Blink uses only the core controls.</div>
+          </div>
+
+          <div class="anim-group" data-anim="Traffic">
+            <div class="empty-state">Traffic tuning lives in Core Controls.</div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Panel Layout</h2>
+            <p>Hardware configuration and alignment.</p>
+          </div>
+
+          <div class="control-row">
+            <label for="sliderPanelCount">Panel Count</label>
+            <div class="range-wrap">
+              <input type="range" id="sliderPanelCount" min="1" max="8" step="1" value="2">
+              <input type="number" id="numPanelCount" min="1" max="8" step="1" value="2">
               <button id="btnSetPanelCount">Apply</button>
             </div>
-            
-            <!-- Panel Order -->
-            <div class="dropdown-container">
-              <label for="panelOrder">Panel Order:</label>
+          </div>
+
+          <div class="control-row">
+            <label for="panelOrder">Panel Order</label>
+            <div class="range-wrap">
               <select id="panelOrder">
                 <option value="left">Left to Right</option>
                 <option value="right">Right to Left</option>
               </select>
               <button id="btnPanelOrder">Apply</button>
             </div>
-            
-            <!-- Identify Panels Button -->
-            <div class="dropdown-container">
-              <label>Identify:</label>
-              <button id="btnIdentifyPanels">Identify Panels</button>
-            </div>
-            
-            <h3>Panel Rotation</h3>
-            <div class="panel-rotation-controls">
-              <div class="rotation-control">
-                <label for="rotatePanel1">Panel 1:</label>
-                <div class="control-group">
-                  <select id="rotatePanel1">
-                    <option value="0">0°</option>
-                    <option value="90" selected>90°</option>
-                    <option value="180">180°</option>
-                    <option value="270">270°</option>
-                  </select>
-                  <button id="btnRotatePanel1">Apply</button>
-                </div>
-              </div>
-              
-              <div class="rotation-control">
-                <label for="rotatePanel2">Panel 2:</label>
-                <div class="control-group">
-                  <select id="rotatePanel2">
-                    <option value="0">0°</option>
-                    <option value="90" selected>90°</option>
-                    <option value="180">180°</option>
-                    <option value="270">270°</option>
-                  </select>
-                  <button id="btnRotatePanel2">Apply</button>
-                </div>
-              </div>
+          </div>
+
+          <div class="control-row">
+            <label>Identify Panels</label>
+            <div class="range-wrap">
+              <button id="btnIdentifyPanels">Identify</button>
+              <button id="btnSwapPanels">Swap Order</button>
             </div>
           </div>
-        </div>
-        
-        <!-- Log area -->
-        <div class="log-section">
-          <h2>Console Log</h2>
-          <div id="log" class="log-container"></div>
-        </div>
+
+          <div class="panel-subheader">Rotation</div>
+          <div class="control-row">
+            <label for="rotatePanel1">Panel 1</label>
+            <div class="range-wrap">
+              <select id="rotatePanel1">
+                <option value="0">0 deg</option>
+                <option value="90" selected>90 deg</option>
+                <option value="180">180 deg</option>
+                <option value="270">270 deg</option>
+              </select>
+              <button id="btnRotatePanel1">Apply</button>
+            </div>
+          </div>
+
+          <div class="control-row">
+            <label for="rotatePanel2">Panel 2</label>
+            <div class="range-wrap">
+              <select id="rotatePanel2">
+                <option value="0">0 deg</option>
+                <option value="90" selected>90 deg</option>
+                <option value="180">180 deg</option>
+                <option value="270">270 deg</option>
+              </select>
+              <button id="btnRotatePanel2">Apply</button>
+            </div>
+          </div>
+
+          <div class="control-row">
+            <label for="rotatePanel3">Panel 3</label>
+            <div class="range-wrap">
+              <select id="rotatePanel3">
+                <option value="0">0 deg</option>
+                <option value="90" selected>90 deg</option>
+                <option value="180">180 deg</option>
+                <option value="270">270 deg</option>
+              </select>
+              <button id="btnRotatePanel3">Apply</button>
+            </div>
+          </div>
+        </section>
       </div>
+
+      <section class="panel console-panel">
+        <div class="panel-header">
+          <h2>Console</h2>
+          <p>Realtime device messages and responses.</p>
+        </div>
+        <div id="log" class="log-container"></div>
+      </section>
     </div>
 
     <script src="/script.js"></script>

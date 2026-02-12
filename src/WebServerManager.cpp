@@ -15,6 +15,7 @@
 #include "esp_task_wdt.h" // Include ESP32 watchdog timer control
 #include "LogManager.h"   // Include LogManager for system logs
 #include <ESPmDNS.h>       // mDNS for hostname resolution
+#include <WiFi.h>
 
 // Format SPIFFS if mount fails
 #define FORMAT_SPIFFS_IF_FAILED true
@@ -564,6 +565,18 @@ void WebServerManager::begin() {
         }
     });
 
+    // 16.5) getPanelOrder
+    _server.on("/api/getPanelOrder", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        int order = ledManager.getPanelOrder();
+        String label = (order == 0) ? "left" : "right";
+        releaseLEDManager();
+        request->send(200, "text/plain", label);
+    });
+
     // 17) rotatePanel1 => param "val" in {0,90,180,270}
     _server.on("/api/rotatePanel1", HTTP_GET, [](AsyncWebServerRequest *request){
         if (!acquireLEDManager(500)) {
@@ -642,6 +655,28 @@ void WebServerManager::begin() {
         }
     });
 
+    // 18.8) getRotation => param "panel" (PANEL1/PANEL2/PANEL3)
+    _server.on("/api/getRotation", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!acquireLEDManager(500)) {
+            request->send(503, "text/plain", "Server busy, try again later");
+            return;
+        }
+        if (!request->hasParam("panel")) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Missing panel param");
+            return;
+        }
+        String panel = request->getParam("panel")->value();
+        int angle = ledManager.getRotation(panel);
+        if (angle < 0) {
+            releaseLEDManager();
+            request->send(400, "text/plain", "Invalid panel identifier");
+            return;
+        }
+        releaseLEDManager();
+        request->send(200, "text/plain", String(angle));
+    });
+
     // 19) setSpeed => param "val" in milliseconds
     _server.on("/api/setSpeed", HTTP_GET, [](AsyncWebServerRequest *request){
         if (!acquireLEDManager(500)) {
@@ -677,6 +712,302 @@ void WebServerManager::begin() {
         
         releaseLEDManager();
         request->send(200,"text/plain", String(speed));
+    });
+
+    /****************************************************
+     * Animation-specific settings
+     ****************************************************/
+    // Life-like rules list
+    _server.on("/api/listLifeRules", HTTP_GET, [](AsyncWebServerRequest *request){
+        String json = "{\"rules\":[";
+        size_t count = ledManager.getLifeRuleCount();
+        for (size_t i = 0; i < count; i++) {
+            json += "\"" + ledManager.getLifeRuleName(i) + "\"";
+            if (i + 1 < count) json += ",";
+        }
+        json += "],\"current\":" + String(ledManager.getLifeRuleIndex()) + "}";
+        request->send(200, "application/json", json);
+    });
+
+    _server.on("/api/setLifeRule", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!request->hasParam("val")) {
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        int idx = request->getParam("val")->value().toInt();
+        ledManager.setLifeRuleIndex(idx);
+        request->send(200, "text/plain", "Life rule updated");
+    });
+
+    _server.on("/api/getLifeRule", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", String(ledManager.getLifeRuleIndex()));
+    });
+
+    _server.on("/api/setLifeDensity", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!request->hasParam("val")) {
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        int density = request->getParam("val")->value().toInt();
+        if (density < 0) density = 0;
+        if (density > 100) density = 100;
+        ledManager.setLifeSeedDensity((uint8_t)density);
+        request->send(200, "text/plain", "Life seed density updated");
+    });
+
+    _server.on("/api/getLifeDensity", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", String(ledManager.getLifeSeedDensity()));
+    });
+
+    _server.on("/api/setLifeWrap", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!request->hasParam("val")) {
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        String val = request->getParam("val")->value();
+        bool wrap = val.equalsIgnoreCase("1") || val.equalsIgnoreCase("true") || val.equalsIgnoreCase("on");
+        ledManager.setLifeWrap(wrap);
+        request->send(200, "text/plain", "Life wrap mode updated");
+    });
+
+    _server.on("/api/getLifeWrap", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", ledManager.getLifeWrap() ? "1" : "0");
+    });
+
+    _server.on("/api/setLifeStagnation", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!request->hasParam("val")) {
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        int limit = request->getParam("val")->value().toInt();
+        ledManager.setLifeStagnationLimit((uint16_t)limit);
+        request->send(200, "text/plain", "Life stagnation limit updated");
+    });
+
+    _server.on("/api/getLifeStagnation", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", String(ledManager.getLifeStagnationLimit()));
+    });
+
+    _server.on("/api/setLifeColorMode", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!request->hasParam("val")) {
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        int mode = request->getParam("val")->value().toInt();
+        ledManager.setLifeColorMode((uint8_t)mode);
+        request->send(200, "text/plain", "Life color mode updated");
+    });
+
+    _server.on("/api/getLifeColorMode", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", String(ledManager.getLifeColorMode()));
+    });
+
+    _server.on("/api/lifeReseed", HTTP_GET, [](AsyncWebServerRequest *request){
+        ledManager.lifeReseed();
+        request->send(200, "text/plain", "Life reseeded");
+    });
+
+    // Langton's Ant settings
+    _server.on("/api/setAntRule", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!request->hasParam("val")) {
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        ledManager.setAntRule(request->getParam("val")->value());
+        request->send(200, "text/plain", "Ant rule updated");
+    });
+
+    _server.on("/api/getAntRule", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", ledManager.getAntRule());
+    });
+
+    _server.on("/api/setAntCount", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!request->hasParam("val")) {
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        int count = request->getParam("val")->value().toInt();
+        ledManager.setAntCount((uint8_t)count);
+        request->send(200, "text/plain", "Ant count updated");
+    });
+
+    _server.on("/api/getAntCount", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", String(ledManager.getAntCount()));
+    });
+
+    _server.on("/api/setAntSteps", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!request->hasParam("val")) {
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        int steps = request->getParam("val")->value().toInt();
+        ledManager.setAntSteps((uint8_t)steps);
+        request->send(200, "text/plain", "Ant steps updated");
+    });
+
+    _server.on("/api/getAntSteps", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", String(ledManager.getAntSteps()));
+    });
+
+    _server.on("/api/setAntWrap", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!request->hasParam("val")) {
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        String val = request->getParam("val")->value();
+        bool wrap = val.equalsIgnoreCase("1") || val.equalsIgnoreCase("true") || val.equalsIgnoreCase("on");
+        ledManager.setAntWrap(wrap);
+        request->send(200, "text/plain", "Ant wrap mode updated");
+    });
+
+    _server.on("/api/getAntWrap", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", ledManager.getAntWrap() ? "1" : "0");
+    });
+
+    // Sierpinski carpet settings
+    _server.on("/api/setCarpetDepth", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!request->hasParam("val")) {
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        int depth = request->getParam("val")->value().toInt();
+        ledManager.setCarpetDepth((uint8_t)depth);
+        request->send(200, "text/plain", "Carpet depth updated");
+    });
+
+    _server.on("/api/getCarpetDepth", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", String(ledManager.getCarpetDepth()));
+    });
+
+    _server.on("/api/setCarpetInvert", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!request->hasParam("val")) {
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        String val = request->getParam("val")->value();
+        bool invert = val.equalsIgnoreCase("1") || val.equalsIgnoreCase("true") || val.equalsIgnoreCase("on");
+        ledManager.setCarpetInvert(invert);
+        request->send(200, "text/plain", "Carpet invert updated");
+    });
+
+    _server.on("/api/getCarpetInvert", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", ledManager.getCarpetInvert() ? "1" : "0");
+    });
+
+    _server.on("/api/setCarpetShift", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!request->hasParam("val")) {
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        int shift = request->getParam("val")->value().toInt();
+        ledManager.setCarpetColorShift((uint8_t)shift);
+        request->send(200, "text/plain", "Carpet color shift updated");
+    });
+
+    _server.on("/api/getCarpetShift", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", String(ledManager.getCarpetColorShift()));
+    });
+
+    // Firework settings
+    _server.on("/api/setFireworkMax", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!request->hasParam("val")) {
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        int maxFw = request->getParam("val")->value().toInt();
+        ledManager.setFireworkMax(maxFw);
+        request->send(200, "text/plain", "Firework max updated");
+    });
+
+    _server.on("/api/getFireworkMax", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", String(ledManager.getFireworkMax()));
+    });
+
+    _server.on("/api/setFireworkParticles", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!request->hasParam("val")) {
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        int count = request->getParam("val")->value().toInt();
+        ledManager.setFireworkParticles(count);
+        request->send(200, "text/plain", "Firework particles updated");
+    });
+
+    _server.on("/api/getFireworkParticles", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", String(ledManager.getFireworkParticles()));
+    });
+
+    _server.on("/api/setFireworkGravity", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!request->hasParam("val")) {
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        float gravity = request->getParam("val")->value().toFloat();
+        ledManager.setFireworkGravity(gravity);
+        request->send(200, "text/plain", "Firework gravity updated");
+    });
+
+    _server.on("/api/getFireworkGravity", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", String(ledManager.getFireworkGravity(), 3));
+    });
+
+    _server.on("/api/setFireworkLaunch", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!request->hasParam("val")) {
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        float probability = request->getParam("val")->value().toFloat();
+        ledManager.setFireworkLaunchProbability(probability);
+        request->send(200, "text/plain", "Firework launch probability updated");
+    });
+
+    _server.on("/api/getFireworkLaunch", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", String(ledManager.getFireworkLaunchProbability(), 2));
+    });
+
+    // Rainbow wave settings
+    _server.on("/api/setRainbowHueScale", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (!request->hasParam("val")) {
+            request->send(400, "text/plain", "Missing val param");
+            return;
+        }
+        int scale = request->getParam("val")->value().toInt();
+        ledManager.setRainbowHueScale((uint8_t)scale);
+        request->send(200, "text/plain", "Rainbow hue scale updated");
+    });
+
+    _server.on("/api/getRainbowHueScale", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", String(ledManager.getRainbowHueScale()));
+    });
+
+    /****************************************************
+     * Status endpoint (used by status.html)
+     ****************************************************/
+    _server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request){
+        bool connected = WiFi.status() == WL_CONNECTED;
+        String ssid = connected ? WiFi.SSID() : String("");
+        int rssi = connected ? WiFi.RSSI() : 0;
+
+        IPAddress ip = WiFi.localIP();
+        IPAddress subnet = WiFi.subnetMask();
+        IPAddress gateway = WiFi.gatewayIP();
+
+        unsigned long uptimeSeconds = millis() / 1000;
+        unsigned long days = uptimeSeconds / 86400;
+        unsigned long hours = (uptimeSeconds % 86400) / 3600;
+        unsigned long minutes = (uptimeSeconds % 3600) / 60;
+        unsigned long seconds = uptimeSeconds % 60;
+        String uptimeStr = String(days) + "d " + String(hours) + "h " + String(minutes) + "m " + String(seconds) + "s";
+
+        String json = "{";
+        json += "\"wifi\":{\"connected\":" + String(connected ? "true" : "false");
+        json += ",\"ssid\":\"" + ssid + "\",\"rssi\":" + String(rssi) + "},";
+        json += "\"network\":{\"ip\":\"" + ip.toString() + "\",\"subnet\":\"" + subnet.toString() + "\",\"gateway\":\"" + gateway.toString() + "\"},";
+        json += "\"system\":{\"uptime\":\"" + uptimeStr + "\",\"freeMemory\":" + String(ESP.getFreeHeap());
+        json += ",\"version\":\"" + String(ESP.getSdkVersion()) + "\",\"buildDate\":\"" + String(__DATE__) + " " + String(__TIME__) + "\"}";
+        json += "}";
+
+        request->send(200, "application/json", json);
     });
 
     /****************************************************

@@ -27,6 +27,27 @@ public:
         long mapped = map(speed, 0, 255, minInterval, maxInterval);
         _intervalMs = static_cast<uint32_t>(constrain(mapped, minInterval, maxInterval));
     }
+
+    // Life-like rules
+    void setRuleMasks(uint16_t birthMask, uint16_t surviveMask) {
+        _birthMask = birthMask;
+        _surviveMask = surviveMask;
+    }
+
+    // Random seed density (0-100%)
+    void setSeedDensity(uint8_t density) { _seedDensity = constrain(density, (uint8_t)0, (uint8_t)100); }
+
+    // Wrap edges (toroidal) vs bounded edges
+    void setWrapMode(bool wrap) { _wrapEdges = wrap; }
+
+    // Stagnation reset threshold (generations)
+    void setStagnationLimit(uint16_t limit) { _maxStagnation = limit; }
+
+    // Color mode: 0=solid, 1=age palette, 2=age hue
+    void setColorMode(uint8_t mode) { _colorMode = mode; }
+
+    // Reseed using current density
+    void reseed() { randomize(_seedDensity); }
     
     // Set panel rotation angles and order
     void setRotationAngle1(int angle) { _rotationAngle1 = angle; }
@@ -90,6 +111,16 @@ private:
     // Color and palette
     const std::vector<std::vector<CRGB>>* _allPalettes;  // Pointer to all palettes
     const std::vector<CRGB>* _currentPalette;           // Current palette
+
+    // Life-like rule masks
+    uint16_t _birthMask;
+    uint16_t _surviveMask;
+    uint8_t _seedDensity;
+    bool _wrapEdges;
+    uint8_t _colorMode;
+
+    // Age tracking (per-cell)
+    uint8_t* _ageGrid;
 
     // Recent state tracking for stagnation detection
     static constexpr uint8_t HISTORY_DEPTH = 6;
