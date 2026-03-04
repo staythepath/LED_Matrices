@@ -66,12 +66,60 @@ public:
     // Panel (not currently used in HTML, but kept here)
     void swapPanels();
     void setPanelOrder(String order);
+    int  getPanelOrder() const;
     void rotatePanel(String panel, int angle);
     int  getRotation(String panel) const;
 
     // Speed
     void setUpdateSpeed(unsigned long speed);
     unsigned long getUpdateSpeed() const;
+
+    // Life-like settings
+    void setLifeSeedDensity(uint8_t density);
+    uint8_t getLifeSeedDensity() const;
+    void setLifeRuleIndex(int index);
+    int getLifeRuleIndex() const;
+    size_t getLifeRuleCount() const;
+    String getLifeRuleName(int index) const;
+    void setLifeWrap(bool wrap);
+    bool getLifeWrap() const;
+    void setLifeStagnationLimit(uint16_t limit);
+    uint16_t getLifeStagnationLimit() const;
+    void setLifeColorMode(uint8_t mode);
+    uint8_t getLifeColorMode() const;
+    void lifeReseed();
+
+    // Langton's Ant settings
+    void setAntRule(const String& rule);
+    String getAntRule() const;
+    void setAntCount(uint8_t count);
+    uint8_t getAntCount() const;
+    void setAntSteps(uint8_t steps);
+    uint8_t getAntSteps() const;
+    void setAntWrap(bool wrap);
+    bool getAntWrap() const;
+
+    // Sierpinski carpet settings
+    void setCarpetDepth(uint8_t depth);
+    uint8_t getCarpetDepth() const;
+    void setCarpetInvert(bool invert);
+    bool getCarpetInvert() const;
+    void setCarpetColorShift(uint8_t shift);
+    uint8_t getCarpetColorShift() const;
+
+    // Firework settings
+    void setFireworkMax(int maxFireworks);
+    int getFireworkMax() const;
+    void setFireworkParticles(int count);
+    int getFireworkParticles() const;
+    void setFireworkGravity(float gravity);
+    float getFireworkGravity() const;
+    void setFireworkLaunchProbability(float probability);
+    float getFireworkLaunchProbability() const;
+
+    // Rainbow wave settings
+    void setRainbowHueScale(uint8_t scale);
+    uint8_t getRainbowHueScale() const;
 
     bool beginExclusiveAccess(uint32_t timeoutMs = 1000) const;
     void endExclusiveAccess() const;
@@ -123,6 +171,33 @@ private:
 
     unsigned long ledUpdateInterval;
     unsigned long lastLedUpdate;
+
+    // Life-like settings
+    uint8_t lifeSeedDensity;
+    int lifeRuleIndex;
+    bool lifeWrapEdges;
+    uint16_t lifeStagnationLimit;
+    uint8_t lifeColorMode;
+
+    // Langton's Ant settings
+    String antRule;
+    uint8_t antCount;
+    uint8_t antSteps;
+    bool antWrapEdges;
+
+    // Sierpinski carpet settings
+    uint8_t carpetDepth;
+    bool carpetInvert;
+    uint8_t carpetColorShift;
+
+    // Firework settings
+    int fireworkMax;
+    int fireworkParticles;
+    float fireworkGravity;
+    float fireworkLaunchProbability;
+
+    // Rainbow wave settings
+    uint8_t rainbowHueScale;
 
     mutable SemaphoreHandle_t _stateMutex;
 };

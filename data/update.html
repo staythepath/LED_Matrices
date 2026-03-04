@@ -98,6 +98,13 @@
         <div class="card">
           <h2>Upload Firmware</h2>
           <p>Select a .bin file to update the device firmware. The device will reboot automatically after a successful update.</p>
+
+          <div class="control-row">
+            <label for="apiToken">API Token</label>
+            <div class="range-wrap">
+              <input type="password" id="apiToken" placeholder="Enter API token">
+            </div>
+          </div>
           
           <div class="upload-form">
             <form method="POST" enctype="multipart/form-data" action="/update" id="uploadForm">
@@ -130,6 +137,9 @@
         const progressBar = document.getElementById('progressBar');
         const statusText = document.getElementById('statusText');
         const uploadButton = document.getElementById('uploadButton');
+        const tokenInput = document.getElementById('apiToken');
+
+        tokenInput.value = localStorage.getItem('apiToken') || '';
         
         // Update file name display when a file is selected
         fileInput.addEventListener('change', function() {
@@ -158,6 +168,8 @@
           uploadButton.disabled = true;
           
           const xhr = new XMLHttpRequest();
+          const token = tokenInput.value.trim();
+          localStorage.setItem('apiToken', token);
           
           xhr.upload.onprogress = function(event) {
             if (event.lengthComputable) {
@@ -191,6 +203,9 @@
           };
           
           xhr.open("POST", "/update");
+          if (token) {
+            xhr.setRequestHeader("X-API-Key", token);
+          }
           xhr.send(new FormData(uploadForm));
         };
         

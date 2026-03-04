@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 
 // External reference to LED array
 extern CRGB leds[];
@@ -29,6 +30,12 @@ GameOfLifeAnimation::GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, i
       _rotationAngle3(0),
       _currentPalette(nullptr),
       _allPalettes(nullptr),
+      _birthMask(0),
+      _surviveMask(0),
+      _seedDensity(33),
+      _wrapEdges(true),
+      _colorMode(0),
+      _ageGrid(nullptr),
       _historyIndex(0)
 {
     // Calculate dimensions based on panel count (assuming square panels)
@@ -48,16 +55,23 @@ GameOfLifeAnimation::GameOfLifeAnimation(uint16_t numLeds, uint8_t brightness, i
     try {
         _grid1 = new uint8_t[_gridSizeBytes];
         _grid2 = new uint8_t[_gridSizeBytes];
+        _ageGrid = new uint8_t[_width * _height];
         
         // Initialize grids to all zeros
         memset(_grid1, 0, _gridSizeBytes);
         memset(_grid2, 0, _gridSizeBytes);
+        memset(_ageGrid, 0, _width * _height);
     } catch (std::bad_alloc& e) {
         // Handle memory allocation failure
         Serial.println("GameOfLife: Failed to allocate memory for grids");
         _grid1 = nullptr;
         _grid2 = nullptr;
+        _ageGrid = nullptr;
     }
+
+    // Default rule: Conway's Life (B3/S23)
+    _birthMask = (1 << 3);
+    _surviveMask = (1 << 2) | (1 << 3);
 
     resetHistory();
 }
@@ -72,6 +86,10 @@ GameOfLifeAnimation::~GameOfLifeAnimation() {
         delete[] _grid2;
         _grid2 = nullptr;
     }
+    if (_ageGrid) {
+        delete[] _ageGrid;
+        _ageGrid = nullptr;
+    }
 }
 
 // Initialize the animation
@@ -81,9 +99,13 @@ void GameOfLifeAnimation::begin() {
         try {
             if (!_grid1) _grid1 = new uint8_t[_gridSizeBytes];
             if (!_grid2) _grid2 = new uint8_t[_gridSizeBytes];
+            if (!_ageGrid) _ageGrid = new uint8_t[_width * _height];
             
             memset(_grid1, 0, _gridSizeBytes);
             memset(_grid2, 0, _gridSizeBytes);
+            if (_ageGrid) {
+                memset(_ageGrid, 0, _width * _height);
+            }
         } catch (std::bad_alloc& e) {
             Serial.println("GameOfLife: Failed to allocate memory in begin()");
             return;
@@ -94,7 +116,7 @@ void GameOfLifeAnimation::begin() {
     _lastUpdateTime = millis();
     
     // Start with a random pattern
-    randomize(33); // 33% initial density
+    randomize(_seedDensity); // Use configured density
 }
 
 // Update animation frame
@@ -165,6 +187,7 @@ void GameOfLifeAnimation::randomize(uint8_t density) {
     if (!_grid1 || !_grid2) return;
 
     density = constrain(density, (uint8_t)0, (uint8_t)100);
+    _seedDensity = density;
 
     resetHistory();
     _lastUpdateTime = millis();
@@ -172,6 +195,9 @@ void GameOfLifeAnimation::randomize(uint8_t density) {
     // Reset the simulation state
     memset(_grid1, 0, _gridSizeBytes);
     memset(_grid2, 0, _gridSizeBytes);
+    if (_ageGrid) {
+        memset(_ageGrid, 0, _width * _height);
+    }
     
     // Add random live cells based on density
     for (int y = 0; y < _height; y++) {
@@ -217,8 +243,17 @@ void GameOfLifeAnimation::updateGrid() {
                     if (dx == 0 && dy == 0) continue;
                     
                     // Calculate neighbor coordinates with wrapping
-                    int nx = (x + dx + _width) % _width;
-                    int ny = (y + dy + _height) % _height;
+                    int nx = x + dx;
+                    int ny = y + dy;
+                    
+                    if (_wrapEdges) {
+                        nx = (nx + _width) % _width;
+                        ny = (ny + _height) % _height;
+                    } else {
+                        if (nx < 0 || nx >= _width || ny < 0 || ny >= _height) {
+                            continue;
+                        }
+                    }
                     
                     // Check if neighbor is alive
                     int neighborIndex = (ny * _width + nx) / 8;
@@ -239,13 +274,10 @@ void GameOfLifeAnimation::updateGrid() {
             
             // Apply Conway's Game of Life rules
             bool willBeAlive = false;
-            
             if (isAlive) {
-                // Live cell with 2 or 3 neighbors survives
-                willBeAlive = (neighbors == 2 || neighbors == 3);
+                willBeAlive = (_surviveMask >> neighbors) & 0x1;
             } else {
-                // Dead cell with exactly 3 neighbors becomes alive
-                willBeAlive = (neighbors == 3);
+                willBeAlive = (_birthMask >> neighbors) & 0x1;
             }
             
             // Set the cell's state in the next generation
@@ -255,6 +287,22 @@ void GameOfLifeAnimation::updateGrid() {
         }
     }
     
+    // Update age grid using new generation before swap
+    if (_ageGrid) {
+        int totalCells = _width * _height;
+        for (int i = 0; i < totalCells; i++) {
+            int byteIndex = i / 8;
+            int bitIndex = i % 8;
+            bool alive = _grid2[byteIndex] & (1 << bitIndex);
+            if (alive) {
+                uint8_t age = _ageGrid[i];
+                _ageGrid[i] = (age < 255) ? age + 1 : 255;
+            } else {
+                _ageGrid[i] = 0;
+            }
+        }
+    }
+
     // Swap grids (using pointer swap for efficiency)
     uint8_t* temp = _grid1;
     _grid1 = _grid2;
@@ -267,9 +315,8 @@ void GameOfLifeAnimation::drawGrid() {
     
     // Use color palette if available
     CRGB aliveColor = CRGB::Green; // Default live cell color
-    
-    if (_currentPalette && !_currentPalette->empty()) {
-        // Use first color from current palette
+    bool hasPalette = _currentPalette && !_currentPalette->empty();
+    if (hasPalette) {
         aliveColor = (*_currentPalette)[0];
     }
     
@@ -292,7 +339,23 @@ void GameOfLifeAnimation::drawGrid() {
                 
                 // Set LED color if the index is valid
                 if (ledIndex >= 0 && ledIndex < _numLeds) {
-                    leds[ledIndex] = aliveColor;
+                    CRGB color = aliveColor;
+                    if (_colorMode == 1 && _ageGrid) {
+                        uint8_t age = _ageGrid[y * _width + x];
+                        if (hasPalette) {
+                            size_t paletteSize = _currentPalette->size();
+                            size_t idx = (paletteSize > 1)
+                                ? (age * (paletteSize - 1)) / 255
+                                : 0;
+                            color = (*_currentPalette)[idx];
+                        } else {
+                            color = CHSV(age, 255, 255);
+                        }
+                    } else if (_colorMode == 2 && _ageGrid) {
+                        uint8_t age = _ageGrid[y * _width + x];
+                        color = CHSV(age * 2, 255, 255);
+                    }
+                    leds[ledIndex] = color;
                 }
             }
         }

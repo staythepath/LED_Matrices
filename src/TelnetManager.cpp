@@ -97,11 +97,21 @@ void TelnetManager::processCommand(String input){
         int angle = input.substring(strlen("ROTATE PANEL2")).toInt();
         rotatePanel("PANEL2", angle);
     }
+    else if(command.startsWith("ROTATE PANEL3")){
+        int angle = input.substring(strlen("ROTATE PANEL3")).toInt();
+        rotatePanel("PANEL3", angle);
+    }
     else if(command.startsWith("GET ROTATION PANEL1")){
         getRotation("PANEL1");
     }
     else if(command.startsWith("GET ROTATION PANEL2")){
         getRotation("PANEL2");
+    }
+    else if(command.startsWith("GET ROTATION PANEL3")){
+        getRotation("PANEL3");
+    }
+    else if(command.startsWith("IDENTIFY PANELS")){
+        identifyPanels();
     }
     else if(command.startsWith("SPEED")){
         unsigned long speed = input.substring(strlen("SPEED")).toInt();
@@ -134,10 +144,11 @@ void TelnetManager::listPaletteDetails(){
 }
 
 void TelnetManager::setPalette(int paletteNumber){
-    if(paletteNumber >=1 && paletteNumber <= _ledManager->getPaletteCount()){
-        _ledManager->setPalette(paletteNumber);
-        _telnetClient.printf("Palette %d (%s) selected.\n", paletteNumber, _ledManager->getPaletteNameAt(paletteNumber -1).c_str());
-        Serial.printf("Palette %d (%s) selected.\n", paletteNumber, _ledManager->getPaletteNameAt(paletteNumber -1).c_str());
+    if(paletteNumber >=1 && paletteNumber <= (int)_ledManager->getPaletteCount()){
+        int zeroIndex = paletteNumber - 1; // Convert 1-based user input to 0-based index
+        _ledManager->setPalette(zeroIndex);
+        _telnetClient.printf("Palette %d (%s) selected.\n", paletteNumber, _ledManager->getPaletteNameAt(zeroIndex).c_str());
+        Serial.printf("Palette %d (%s) selected.\n", paletteNumber, _ledManager->getPaletteNameAt(zeroIndex).c_str());
     }
     else{
         _telnetClient.println("Invalid palette number. Enter a number between 1 and " + String(_ledManager->getPaletteCount()) + ".");
@@ -168,7 +179,7 @@ void TelnetManager::getBrightness(){
 
 void TelnetManager::setTailLength(int value){
     if(value >=1 && value <=30){
-        _ledManager->setFadeAmount(value);
+        _ledManager->setTailLength(value);
         _telnetClient.printf("Tail length set to %d.\n", value);
         Serial.printf("Tail length set to %d.\n", value);
     }
@@ -178,8 +189,8 @@ void TelnetManager::setTailLength(int value){
 }
 
 void TelnetManager::getTailLength(){
-    int fade = _ledManager->getFadeAmount();
-    _telnetClient.printf("Current Tail Length: %d\n", fade);
+    int tail = _ledManager->getTailLength();
+    _telnetClient.printf("Current Tail Length: %d\n", tail);
 }
 
 void TelnetManager::setSpawnRate(float rate){
@@ -237,7 +248,7 @@ void TelnetManager::setPanelOrder(String order){
 }
 
 void TelnetManager::rotatePanel(String panel, int angle){
-    if(panel.equalsIgnoreCase("PANEL1") || panel.equalsIgnoreCase("PANEL2")){
+    if(panel.equalsIgnoreCase("PANEL1") || panel.equalsIgnoreCase("PANEL2") || panel.equalsIgnoreCase("PANEL3")){
         if(angle ==0 || angle ==90 || angle ==180 || angle ==270){
             _ledManager->rotatePanel(panel, angle);
             _telnetClient.printf("Rotation angle for %s set to %d degrees.\n", panel.c_str(), angle);
@@ -248,7 +259,7 @@ void TelnetManager::rotatePanel(String panel, int angle){
         }
     }
     else{
-        _telnetClient.println("Unknown panel identifier. Use 'PANEL1' or 'PANEL2'.");
+        _telnetClient.println("Unknown panel identifier. Use 'PANEL1', 'PANEL2', or 'PANEL3'.");
     }
 }
 
@@ -261,21 +272,30 @@ void TelnetManager::getRotation(String panel){
         int angle = _ledManager->getRotation("PANEL2");
         _telnetClient.printf("Current Rotation Angle for Panel 2: %d degrees\n", angle);
     }
-    else{
-        _telnetClient.println("Unknown panel identifier. Use 'PANEL1' or 'PANEL2'.");
+    else if(panel.equalsIgnoreCase("PANEL3")){
+        int angle = _ledManager->getRotation("PANEL3");
+        _telnetClient.printf("Current Rotation Angle for Panel 3: %d degrees\n", angle);
     }
+    else{
+        _telnetClient.println("Unknown panel identifier. Use 'PANEL1', 'PANEL2', or 'PANEL3'.");
+    }
+}
+
+void TelnetManager::identifyPanels(){
+    _ledManager->identifyPanels();
+    _telnetClient.println("Identifying panels...");
 }
 
 
 
 void TelnetManager::setSpeed(unsigned long speed){
-    if(speed >=10 && speed <=60000){
+    if(speed >=3 && speed <=1500){
         _ledManager->setUpdateSpeed(speed);
         _telnetClient.printf("LED update speed set to %lu ms.\n", speed);
         Serial.printf("LED update speed set to %lu ms.\n", speed);
     }
     else{
-        _telnetClient.println("Invalid speed value. Enter a number between 10 and 60000.");
+        _telnetClient.println("Invalid speed value. Enter a number between 3 and 1500.");
     }
 }
 
@@ -302,9 +322,12 @@ void TelnetManager::showHelp(){
     _telnetClient.println("  SET PANEL ORDER <left/right> - Set panel order");
     _telnetClient.println("  ROTATE PANEL1 <0/90/180/270> - Rotate Panel1");
     _telnetClient.println("  ROTATE PANEL2 <0/90/180/270> - Rotate Panel2");
+    _telnetClient.println("  ROTATE PANEL3 <0/90/180/270> - Rotate Panel3");
     _telnetClient.println("  GET ROTATION PANEL1 - Get Panel1 rotation");
     _telnetClient.println("  GET ROTATION PANEL2 - Get Panel2 rotation");
-    _telnetClient.println("  SPEED <ms> - Set LED update speed");
+    _telnetClient.println("  GET ROTATION PANEL3 - Get Panel3 rotation");
+    _telnetClient.println("  IDENTIFY PANELS - Show panel numbering");
+    _telnetClient.println("  SPEED <ms> - Set LED update speed (3-1500)");
     _telnetClient.println("  GET SPEED - Get LED update speed");
     _telnetClient.println("  HELP - Show this help message");
 }

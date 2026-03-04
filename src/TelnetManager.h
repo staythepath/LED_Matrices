@@ -41,7 +41,7 @@ private:
   void setSpeed(unsigned long speed);
   void getSpeed();
   void showHelp();
-  void identifyPanels(); 
+  void identifyPanels();
 };
 
 #endif // TELNETMANAGER_H

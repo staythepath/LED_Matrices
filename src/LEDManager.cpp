@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <FastLED.h>
 #include <typeinfo>
+#include <ctype.h>
 #include "LogManager.h"
 
 // Include Animation header files
@@ -11,6 +12,8 @@
 #include "animations/RainbowWaveAnimation.h"
 #include "animations/FireworkAnimation.h"
 #include "animations/GameOfLifeAnimation.h"
+#include "animations/LangtonsAntAnimation.h"
+#include "animations/SierpinskiCarpetAnimation.h"
 
 // Animations
 #include "animations/BaseAnimation.h"
@@ -39,6 +42,23 @@ CRGB leds[MAX_LEDS];
         return defaultValue;                                                         \
     }
 
+struct LifeRulePreset {
+    const char* name;
+    uint16_t birthMask;
+    uint16_t surviveMask;
+};
+
+static const LifeRulePreset LIFE_RULES[] = {
+    { "Life (B3/S23)", (1 << 3), (1 << 2) | (1 << 3) },
+    { "HighLife (B36/S23)", (1 << 3) | (1 << 6), (1 << 2) | (1 << 3) },
+    { "Seeds (B2/S)", (1 << 2), 0 },
+    { "Maze (B3/S12345)", (1 << 3), (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) },
+    { "Day & Night (B3678/S34678)", (1 << 3) | (1 << 6) | (1 << 7) | (1 << 8), (1 << 3) | (1 << 4) | (1 << 6) | (1 << 7) | (1 << 8) },
+    { "Anneal (B4678/S35678)", (1 << 4) | (1 << 6) | (1 << 7) | (1 << 8), (1 << 3) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) }
+};
+
+static const size_t LIFE_RULE_COUNT = sizeof(LIFE_RULES) / sizeof(LIFE_RULES[0]);
+
 LEDManager::LEDManager()
     : _panelCount(2) // default
     , _numLeds(_panelCount * 16 * 16)
@@ -56,6 +76,23 @@ LEDManager::LEDManager()
     , rotationAngle3(90)
     , ledUpdateInterval(38)
     , lastLedUpdate(0)
+    , lifeSeedDensity(33)
+    , lifeRuleIndex(0)
+    , lifeWrapEdges(true)
+    , lifeStagnationLimit(45)
+    , lifeColorMode(0)
+    , antRule("LR")
+    , antCount(1)
+    , antSteps(8)
+    , antWrapEdges(true)
+    , carpetDepth(4)
+    , carpetInvert(false)
+    , carpetColorShift(2)
+    , fireworkMax(10)
+    , fireworkParticles(40)
+    , fireworkGravity(0.15f)
+    , fireworkLaunchProbability(0.15f)
+    , rainbowHueScale(4)
     , _isInitializing(true)
     , _stateMutex(xSemaphoreCreateRecursiveMutex())
 {
@@ -69,6 +106,8 @@ LEDManager::LEDManager()
     _animationNames.push_back("RainbowWave"); // index=2
     _animationNames.push_back("Firework");    // index=3
     _animationNames.push_back("GameOfLife");  // index=4
+    _animationNames.push_back("LangtonsAnt"); // index=5
+    _animationNames.push_back("SierpinskiCarpet"); // index=6
 }
 
 bool LEDManager::beginExclusiveAccess(uint32_t timeoutMs) const {
@@ -188,6 +227,7 @@ void LEDManager::configureCurrentAnimation() {
         anim->setRotationAngle2(rotationAngle2);
         anim->setRotationAngle3(rotationAngle3);
         anim->setPanelOrder(panelOrder);
+        anim->setUpdateInterval(ledUpdateInterval);
         anim->setSpawnRate(spawnRate);
         anim->setMaxCars(maxFlakes);
         anim->setTailLength(tailLength);
@@ -209,6 +249,7 @@ void LEDManager::configureCurrentAnimation() {
         // Set animation parameters
         anim->setUpdateInterval(8);
         anim->setSpeedMultiplier(speedMultiplier);
+        anim->setHueScale(rainbowHueScale);
         
         // Set panel configuration
         anim->setPanelOrder(panelOrder);
@@ -222,11 +263,11 @@ void LEDManager::configureCurrentAnimation() {
         anim->setRotationAngle2(rotationAngle2);
         anim->setRotationAngle3(rotationAngle3);
         anim->setPanelOrder(panelOrder);
-        anim->setUpdateInterval(15);
-        anim->setMaxFireworks(10);
-        anim->setParticleCount(40);
-        anim->setGravity(0.15f);
-        anim->setLaunchProbability(0.15f);
+        anim->setUpdateInterval(ledUpdateInterval);
+        anim->setMaxFireworks(fireworkMax);
+        anim->setParticleCount(fireworkParticles);
+        anim->setGravity(fireworkGravity);
+        anim->setLaunchProbability(fireworkLaunchProbability);
     }
     else if (_currentAnimationIndex == 4) { // GameOfLife
         GameOfLifeAnimation* anim = static_cast<GameOfLifeAnimation*>(_currentAnimation);
@@ -234,9 +275,41 @@ void LEDManager::configureCurrentAnimation() {
         anim->setRotationAngle2(rotationAngle2);
         anim->setRotationAngle3(rotationAngle3);
         anim->setPanelOrder(panelOrder);
-        anim->setSpeed(map(ledUpdateInterval, 10, 1500, 0, 255));
+        anim->setSpeed(map(ledUpdateInterval, 3, 1500, 0, 255));
         anim->setAllPalettes(&ALL_PALETTES);
         anim->setCurrentPalette(currentPalette);
+        if (lifeRuleIndex >= 0 && lifeRuleIndex < (int)LIFE_RULE_COUNT) {
+            anim->setRuleMasks(LIFE_RULES[lifeRuleIndex].birthMask, LIFE_RULES[lifeRuleIndex].surviveMask);
+        }
+        anim->setSeedDensity(lifeSeedDensity);
+        anim->setWrapMode(lifeWrapEdges);
+        anim->setStagnationLimit(lifeStagnationLimit);
+        anim->setColorMode(lifeColorMode);
+    }
+    else if (_currentAnimationIndex == 5) { // LangtonsAnt
+        LangtonsAntAnimation* anim = static_cast<LangtonsAntAnimation*>(_currentAnimation);
+        anim->setRotationAngle1(rotationAngle1);
+        anim->setRotationAngle2(rotationAngle2);
+        anim->setRotationAngle3(rotationAngle3);
+        anim->setPanelOrder(panelOrder);
+        anim->setUpdateInterval(ledUpdateInterval);
+        anim->setRule(antRule);
+        anim->setAntCount(antCount);
+        anim->setStepsPerFrame(antSteps);
+        anim->setWrapMode(antWrapEdges);
+        anim->setPalette(&ALL_PALETTES[currentPalette]);
+    }
+    else if (_currentAnimationIndex == 6) { // SierpinskiCarpet
+        SierpinskiCarpetAnimation* anim = static_cast<SierpinskiCarpetAnimation*>(_currentAnimation);
+        anim->setRotationAngle1(rotationAngle1);
+        anim->setRotationAngle2(rotationAngle2);
+        anim->setRotationAngle3(rotationAngle3);
+        anim->setPanelOrder(panelOrder);
+        anim->setUpdateInterval(ledUpdateInterval);
+        anim->setDepth(carpetDepth);
+        anim->setInvert(carpetInvert);
+        anim->setColorShift(carpetColorShift);
+        anim->setPalette(&ALL_PALETTES[currentPalette]);
     }
 }
 
@@ -288,6 +361,12 @@ void LEDManager::setAnimation(int index) {
                 break;
             case 4: // GameOfLife
                 _currentAnimation = new GameOfLifeAnimation(_numLeds, _brightness, _panelCount);
+                break;
+            case 5: // LangtonsAnt
+                _currentAnimation = new LangtonsAntAnimation(_numLeds, _brightness, _panelCount);
+                break;
+            case 6: // SierpinskiCarpet
+                _currentAnimation = new SierpinskiCarpetAnimation(_numLeds, _brightness, _panelCount);
                 break;
             default:
                 systemError("Unknown animation index: " + String(index) + ", falling back to Traffic");
@@ -617,6 +696,14 @@ void LEDManager::setPalette(int idx){
             auto* g = static_cast<GameOfLifeAnimation*>(_currentAnimation);
             g->setCurrentPalette(currentPalette);
         }
+        else if(_currentAnimationIndex==5 && _currentAnimation){
+            auto* a = static_cast<LangtonsAntAnimation*>(_currentAnimation);
+            a->setPalette(&ALL_PALETTES[currentPalette]);
+        }
+        else if(_currentAnimationIndex==6 && _currentAnimation){
+            auto* s = static_cast<SierpinskiCarpetAnimation*>(_currentAnimation);
+            s->setPalette(&ALL_PALETTES[currentPalette]);
+        }
     }
 }
 
@@ -716,6 +803,12 @@ void LEDManager::swapPanels(){
     } else if(_currentAnimationIndex==4){
         auto* g = static_cast<GameOfLifeAnimation*>(_currentAnimation);
         g->setPanelOrder(panelOrder);
+    } else if(_currentAnimationIndex==5){
+        auto* a = static_cast<LangtonsAntAnimation*>(_currentAnimation);
+        a->setPanelOrder(panelOrder);
+    } else if(_currentAnimationIndex==6){
+        auto* s = static_cast<SierpinskiCarpetAnimation*>(_currentAnimation);
+        s->setPanelOrder(panelOrder);
     }
 }
 void LEDManager::setPanelOrder(String order){
@@ -747,7 +840,18 @@ void LEDManager::setPanelOrder(String order){
     } else if(_currentAnimationIndex==4){
         auto* g = static_cast<GameOfLifeAnimation*>(_currentAnimation);
         g->setPanelOrder(panelOrder);
+    } else if(_currentAnimationIndex==5){
+        auto* a = static_cast<LangtonsAntAnimation*>(_currentAnimation);
+        a->setPanelOrder(panelOrder);
+    } else if(_currentAnimationIndex==6){
+        auto* s = static_cast<SierpinskiCarpetAnimation*>(_currentAnimation);
+        s->setPanelOrder(panelOrder);
     }
+}
+
+int LEDManager::getPanelOrder() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, panelOrder);
+    return panelOrder;
 }
 
 void LEDManager::rotatePanel(String panel, int angle){
@@ -768,6 +872,10 @@ void LEDManager::rotatePanel(String panel, int angle){
                 static_cast<FireworkAnimation*>(_currentAnimation)->setRotationAngle1(angle);
             } else if(_currentAnimationIndex==4){
                 static_cast<GameOfLifeAnimation*>(_currentAnimation)->setRotationAngle1(angle);
+            } else if(_currentAnimationIndex==5){
+                static_cast<LangtonsAntAnimation*>(_currentAnimation)->setRotationAngle1(angle);
+            } else if(_currentAnimationIndex==6){
+                static_cast<SierpinskiCarpetAnimation*>(_currentAnimation)->setRotationAngle1(angle);
             }
         }
     }
@@ -783,6 +891,10 @@ void LEDManager::rotatePanel(String panel, int angle){
                 static_cast<FireworkAnimation*>(_currentAnimation)->setRotationAngle2(angle);
             } else if(_currentAnimationIndex==4){
                 static_cast<GameOfLifeAnimation*>(_currentAnimation)->setRotationAngle2(angle);
+            } else if(_currentAnimationIndex==5){
+                static_cast<LangtonsAntAnimation*>(_currentAnimation)->setRotationAngle2(angle);
+            } else if(_currentAnimationIndex==6){
+                static_cast<SierpinskiCarpetAnimation*>(_currentAnimation)->setRotationAngle2(angle);
             }
         }
     }
@@ -798,6 +910,10 @@ void LEDManager::rotatePanel(String panel, int angle){
                 static_cast<FireworkAnimation*>(_currentAnimation)->setRotationAngle3(angle);
             } else if(_currentAnimationIndex==4){
                 static_cast<GameOfLifeAnimation*>(_currentAnimation)->setRotationAngle3(angle);
+            } else if(_currentAnimationIndex==5){
+                static_cast<LangtonsAntAnimation*>(_currentAnimation)->setRotationAngle3(angle);
+            } else if(_currentAnimationIndex==6){
+                static_cast<SierpinskiCarpetAnimation*>(_currentAnimation)->setRotationAngle3(angle);
             }
         }
     }
@@ -811,11 +927,14 @@ int LEDManager::getRotation(String panel) const {
     else if(panel.equalsIgnoreCase("panel2")){
         return rotationAngle2;
     }
+    else if(panel.equalsIgnoreCase("panel3")){
+        return rotationAngle3;
+    }
     return -1;
 }
 
 void LEDManager::setUpdateSpeed(unsigned long speed){
-    if(speed>=10 && speed<=1500){
+    if(speed>=3 && speed<=1500){
         LEDMANAGER_LOCK_OR_RETURN(1000);
         ledUpdateInterval=speed;
         Serial.printf("LED update speed set to %lu ms\n", speed);
@@ -846,14 +965,319 @@ void LEDManager::setUpdateSpeed(unsigned long speed){
         }
         else if(_currentAnimationIndex==4 && _currentAnimation){
             auto* g = static_cast<GameOfLifeAnimation*>(_currentAnimation);
-            uint8_t mapped = map((int)speed, 10, 1500, 0, 255);
+            uint8_t mapped = map((int)speed, 3, 1500, 0, 255);
             g->setSpeed(mapped);
+        }
+        else if(_currentAnimationIndex==5 && _currentAnimation){
+            auto* a = static_cast<LangtonsAntAnimation*>(_currentAnimation);
+            a->setUpdateInterval(speed);
+        }
+        else if(_currentAnimationIndex==6 && _currentAnimation){
+            auto* s = static_cast<SierpinskiCarpetAnimation*>(_currentAnimation);
+            s->setUpdateInterval(speed);
         }
     }
 }
 unsigned long LEDManager::getUpdateSpeed() const {
     LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, ledUpdateInterval);
     return ledUpdateInterval;
+}
+
+void LEDManager::setLifeSeedDensity(uint8_t density) {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
+    if (density > 100) density = 100;
+    lifeSeedDensity = density;
+    if (_currentAnimationIndex == 4 && _currentAnimation) {
+        auto* g = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        g->setSeedDensity(lifeSeedDensity);
+        g->reseed();
+    }
+}
+
+uint8_t LEDManager::getLifeSeedDensity() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, lifeSeedDensity);
+    return lifeSeedDensity;
+}
+
+void LEDManager::setLifeRuleIndex(int index) {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
+    if (index < 0 || index >= (int)LIFE_RULE_COUNT) {
+        return;
+    }
+    lifeRuleIndex = index;
+    if (_currentAnimationIndex == 4 && _currentAnimation) {
+        auto* g = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        g->setRuleMasks(LIFE_RULES[index].birthMask, LIFE_RULES[index].surviveMask);
+    }
+}
+
+int LEDManager::getLifeRuleIndex() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, lifeRuleIndex);
+    return lifeRuleIndex;
+}
+
+size_t LEDManager::getLifeRuleCount() const {
+    return LIFE_RULE_COUNT;
+}
+
+String LEDManager::getLifeRuleName(int index) const {
+    if (index < 0 || index >= (int)LIFE_RULE_COUNT) {
+        return "Unknown";
+    }
+    return String(LIFE_RULES[index].name);
+}
+
+void LEDManager::setLifeWrap(bool wrap) {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
+    lifeWrapEdges = wrap;
+    if (_currentAnimationIndex == 4 && _currentAnimation) {
+        auto* g = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        g->setWrapMode(lifeWrapEdges);
+    }
+}
+
+bool LEDManager::getLifeWrap() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, lifeWrapEdges);
+    return lifeWrapEdges;
+}
+
+void LEDManager::setLifeStagnationLimit(uint16_t limit) {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
+    if (limit < 5) limit = 5;
+    if (limit > 250) limit = 250;
+    lifeStagnationLimit = limit;
+    if (_currentAnimationIndex == 4 && _currentAnimation) {
+        auto* g = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        g->setStagnationLimit(lifeStagnationLimit);
+    }
+}
+
+uint16_t LEDManager::getLifeStagnationLimit() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, lifeStagnationLimit);
+    return lifeStagnationLimit;
+}
+
+void LEDManager::setLifeColorMode(uint8_t mode) {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
+    if (mode > 2) mode = 0;
+    lifeColorMode = mode;
+    if (_currentAnimationIndex == 4 && _currentAnimation) {
+        auto* g = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        g->setColorMode(lifeColorMode);
+    }
+}
+
+uint8_t LEDManager::getLifeColorMode() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, lifeColorMode);
+    return lifeColorMode;
+}
+
+void LEDManager::lifeReseed() {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
+    if (_currentAnimationIndex == 4 && _currentAnimation) {
+        auto* g = static_cast<GameOfLifeAnimation*>(_currentAnimation);
+        g->reseed();
+    }
+}
+
+void LEDManager::setAntRule(const String& rule) {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
+    String cleaned;
+    cleaned.reserve(rule.length());
+    for (size_t i = 0; i < rule.length(); i++) {
+        char c = (char)toupper(rule.charAt(i));
+        if (c == 'L' || c == 'R') {
+            cleaned += c;
+        }
+        if (cleaned.length() >= 8) {
+            break;
+        }
+    }
+    if (cleaned.length() == 0) {
+        cleaned = "LR";
+    }
+    antRule = cleaned;
+    if (_currentAnimationIndex == 5 && _currentAnimation) {
+        auto* a = static_cast<LangtonsAntAnimation*>(_currentAnimation);
+        a->setRule(antRule);
+    }
+}
+
+String LEDManager::getAntRule() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, antRule);
+    return antRule;
+}
+
+void LEDManager::setAntCount(uint8_t count) {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
+    if (count < 1) count = 1;
+    if (count > 6) count = 6;
+    antCount = count;
+    if (_currentAnimationIndex == 5 && _currentAnimation) {
+        auto* a = static_cast<LangtonsAntAnimation*>(_currentAnimation);
+        a->setAntCount(antCount);
+    }
+}
+
+uint8_t LEDManager::getAntCount() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, antCount);
+    return antCount;
+}
+
+void LEDManager::setAntSteps(uint8_t steps) {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
+    if (steps < 1) steps = 1;
+    if (steps > 50) steps = 50;
+    antSteps = steps;
+    if (_currentAnimationIndex == 5 && _currentAnimation) {
+        auto* a = static_cast<LangtonsAntAnimation*>(_currentAnimation);
+        a->setStepsPerFrame(antSteps);
+    }
+}
+
+uint8_t LEDManager::getAntSteps() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, antSteps);
+    return antSteps;
+}
+
+void LEDManager::setAntWrap(bool wrap) {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
+    antWrapEdges = wrap;
+    if (_currentAnimationIndex == 5 && _currentAnimation) {
+        auto* a = static_cast<LangtonsAntAnimation*>(_currentAnimation);
+        a->setWrapMode(antWrapEdges);
+    }
+}
+
+bool LEDManager::getAntWrap() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, antWrapEdges);
+    return antWrapEdges;
+}
+
+void LEDManager::setCarpetDepth(uint8_t depth) {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
+    if (depth < 1) depth = 1;
+    if (depth > 6) depth = 6;
+    carpetDepth = depth;
+    if (_currentAnimationIndex == 6 && _currentAnimation) {
+        auto* s = static_cast<SierpinskiCarpetAnimation*>(_currentAnimation);
+        s->setDepth(carpetDepth);
+    }
+}
+
+uint8_t LEDManager::getCarpetDepth() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, carpetDepth);
+    return carpetDepth;
+}
+
+void LEDManager::setCarpetInvert(bool invert) {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
+    carpetInvert = invert;
+    if (_currentAnimationIndex == 6 && _currentAnimation) {
+        auto* s = static_cast<SierpinskiCarpetAnimation*>(_currentAnimation);
+        s->setInvert(carpetInvert);
+    }
+}
+
+bool LEDManager::getCarpetInvert() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, carpetInvert);
+    return carpetInvert;
+}
+
+void LEDManager::setCarpetColorShift(uint8_t shift) {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
+    if (shift < 1) shift = 1;
+    if (shift > 20) shift = 20;
+    carpetColorShift = shift;
+    if (_currentAnimationIndex == 6 && _currentAnimation) {
+        auto* s = static_cast<SierpinskiCarpetAnimation*>(_currentAnimation);
+        s->setColorShift(carpetColorShift);
+    }
+}
+
+uint8_t LEDManager::getCarpetColorShift() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, carpetColorShift);
+    return carpetColorShift;
+}
+
+void LEDManager::setFireworkMax(int maxFireworks) {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
+    if (maxFireworks < 1) maxFireworks = 1;
+    if (maxFireworks > 25) maxFireworks = 25;
+    fireworkMax = maxFireworks;
+    if (_currentAnimationIndex == 3 && _currentAnimation) {
+        auto* f = static_cast<FireworkAnimation*>(_currentAnimation);
+        f->setMaxFireworks(fireworkMax);
+    }
+}
+
+int LEDManager::getFireworkMax() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, fireworkMax);
+    return fireworkMax;
+}
+
+void LEDManager::setFireworkParticles(int count) {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
+    if (count < 10) count = 10;
+    if (count > 120) count = 120;
+    fireworkParticles = count;
+    if (_currentAnimationIndex == 3 && _currentAnimation) {
+        auto* f = static_cast<FireworkAnimation*>(_currentAnimation);
+        f->setParticleCount(fireworkParticles);
+    }
+}
+
+int LEDManager::getFireworkParticles() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, fireworkParticles);
+    return fireworkParticles;
+}
+
+void LEDManager::setFireworkGravity(float gravity) {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
+    if (gravity < 0.01f) gravity = 0.01f;
+    if (gravity > 0.5f) gravity = 0.5f;
+    fireworkGravity = gravity;
+    if (_currentAnimationIndex == 3 && _currentAnimation) {
+        auto* f = static_cast<FireworkAnimation*>(_currentAnimation);
+        f->setGravity(fireworkGravity);
+    }
+}
+
+float LEDManager::getFireworkGravity() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, fireworkGravity);
+    return fireworkGravity;
+}
+
+void LEDManager::setFireworkLaunchProbability(float probability) {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
+    if (probability < 0.01f) probability = 0.01f;
+    if (probability > 1.0f) probability = 1.0f;
+    fireworkLaunchProbability = probability;
+    if (_currentAnimationIndex == 3 && _currentAnimation) {
+        auto* f = static_cast<FireworkAnimation*>(_currentAnimation);
+        f->setLaunchProbability(fireworkLaunchProbability);
+    }
+}
+
+float LEDManager::getFireworkLaunchProbability() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, fireworkLaunchProbability);
+    return fireworkLaunchProbability;
+}
+
+void LEDManager::setRainbowHueScale(uint8_t scale) {
+    LEDMANAGER_LOCK_OR_RETURN(1000);
+    if (scale < 1) scale = 1;
+    if (scale > 12) scale = 12;
+    rainbowHueScale = scale;
+    if (_currentAnimationIndex == 2 && _currentAnimation) {
+        auto* w = static_cast<RainbowWaveAnimation*>(_currentAnimation);
+        w->setHueScale(rainbowHueScale);
+    }
+}
+
+uint8_t LEDManager::getRainbowHueScale() const {
+    LEDMANAGER_LOCK_CONST_OR_RETURN_VALUE(1000, rainbowHueScale);
+    return rainbowHueScale;
 }
 
 int LEDManager::getAnimation() const {

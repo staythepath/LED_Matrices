@@ -25,6 +25,7 @@ extern const int d7;
 // Use extern variables (values assigned in config.cpp)
 extern const char* ssid;
 extern const char* password;
+extern const char* apiToken;
 extern const char* ntpServer;
 extern const long  gmtOffset_sec;
 extern const int   daylightOffset_sec;

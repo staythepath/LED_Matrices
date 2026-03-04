@@ -7,10 +7,15 @@
 #  else
 #    define WIFI_SSID     "ESP32_LEDMatrix"
 #    define WIFI_PASSWORD "changeme1234"
+#    define API_TOKEN     "changeme-api-token"
 #  endif
 #else
 // Fallback for toolchains without __has_include
 #  include "credentials.h"
+#endif
+
+#ifndef API_TOKEN
+#  define API_TOKEN "changeme-api-token"
 #endif
 
 // Define LCD pins here (values assigned once)
@@ -24,6 +29,7 @@ const int d7 = 15;
 // Assign Wi-Fi credentials from macros in credentials.h
 const char* ssid = WIFI_SSID;       // Use the macro
 const char* password = WIFI_PASSWORD; // Use the macro
+const char* apiToken = API_TOKEN;
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = -21600; // Example: -5 hours for EST
 const int   daylightOffset_sec = 0; // 1-hour daylight saving time
