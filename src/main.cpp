@@ -56,8 +56,20 @@ static bool parseIP(const String& s, IPAddress& out){
     return false;
 }
 
+static bool ensureSpiffsMounted(){
+    static bool mounted = false;
+    if (mounted) {
+        return true;
+    }
+    mounted = SPIFFS.begin(false);
+    if (!mounted) {
+        Serial.println("SPIFFS mount failed");
+    }
+    return mounted;
+}
+
 static void loadNetworkConfig(){
-    if(!SPIFFS.begin(true)){
+    if(!ensureSpiffsMounted()){
         Serial.println("SPIFFS mount failed, using defaults");
         return;
     }
@@ -104,6 +116,48 @@ static void loadNetworkConfig(){
     f.close();
 }
 
+static int loadPanelCountConfig() {
+    if (!ensureSpiffsMounted()) {
+        return 2;
+    }
+
+    if (!SPIFFS.exists("/panel.cfg")) {
+        File f = SPIFFS.open("/panel.cfg", "w");
+        if (f) {
+            f.println("count=2");
+            f.close();
+        }
+        return 2;
+    }
+
+    File f = SPIFFS.open("/panel.cfg", "r");
+    if (!f) {
+        return 2;
+    }
+
+    int panelCount = 2;
+    while (f.available()) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (line.length() == 0) continue;
+        int eq = line.indexOf('=');
+        if (eq <= 0) continue;
+        String key = line.substring(0, eq);
+        String val = line.substring(eq + 1);
+        key.trim();
+        val.trim();
+        if (key.equalsIgnoreCase("count")) {
+            panelCount = val.toInt();
+            break;
+        }
+    }
+    f.close();
+
+    if (panelCount < 1) panelCount = 1;
+    if (panelCount > 8) panelCount = 8;
+    return panelCount;
+}
+
 void setup() {
     Serial.begin(115200);
     delay(1000);
@@ -125,10 +179,10 @@ void setup() {
     // Load network config (creates /net.cfg defaulting to static IP if missing)
     loadNetworkConfig();
 
-    // Force panel count to 2 at startup
-    ledManager.setPanelCount(2);
-    systemInfo("Panel count forced to 2 at startup");
-    Serial.println("Panel count forced to 2 at startup");
+    int startupPanelCount = loadPanelCountConfig();
+    ledManager.setPanelCount(startupPanelCount);
+    systemInfo("Panel count loaded at startup: " + String(startupPanelCount));
+    Serial.println("Panel count loaded at startup: " + String(startupPanelCount));
     
     // Configure core affinity for tasks
     // Core 0: System tasks, WiFi
@@ -212,19 +266,14 @@ void loop() {
     float hum = 50.0;     // Fixed humidity (50%)
     float temp_f = (temp_c * 9 / 5) + 32;
 
-    // 2) Check the time
+    // 2) Check the time (non-blocking — never skip LED updates if NTP fails)
     struct tm timeinfo;
-    if(!getLocalTime(&timeinfo)) {
-        systemInfo("Failed to obtain time");
-        Serial.println("Failed to obtain time");
-        return;
-    }
+    bool timeValid = getLocalTime(&timeinfo, 0); // 0ms timeout = non-blocking
 
     // 3) Check if the user touched the rotary (movement/button)
-    //    We'll do a small function for user activity detection:
     bool userActivity = false;
 
-    // The RotaryEncoder class uses "update()" to detect new states
+    // encoder.update() is called inside menu.update() — only call it once per loop
     encoder.update();
 
     // If the position changed OR the button was pressed => activity
@@ -269,9 +318,8 @@ void loop() {
             Serial.println("Menu timed out. Returning to normal screen...");
         }
 
-    } else {
-        // If we're NOT in the menu, we show the normal date/time/hum screen
-        // (like you had in your original loop)
+    } else if (timeValid) {
+        // If we're NOT in the menu and time is available, show the normal screen
         lcdManager.updateDisplay(
             timeinfo.tm_mon + 1,
             timeinfo.tm_mday,

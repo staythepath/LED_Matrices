@@ -10,6 +10,19 @@ function log(msg) {
   }
 }
 
+function getApiToken() {
+  return localStorage.getItem("apiToken") || "";
+}
+
+function authFetch(url, options = {}) {
+  const headers = new Headers(options.headers || {});
+  const token = getApiToken();
+  if (token) {
+    headers.set("X-API-Key", token);
+  }
+  return fetch(url, { ...options, headers });
+}
+
 /************************************************
  * Debounce utility
  ************************************************/
@@ -29,8 +42,8 @@ const apiQueue = {
   processing: false,
   maxRetries: 3,
 
-  add(url, callback) {
-    this.queue.push({ url, callback, retries: 0 });
+  add(url, callback, options = {}) {
+    this.queue.push({ url, callback, retries: 0, options });
     if (!this.processing) this.processNext();
   },
 
@@ -42,9 +55,9 @@ const apiQueue = {
 
     this.processing = true;
     const request = this.queue.shift();
-    const { url, callback, retries } = request;
+    const { url, callback, retries, options } = request;
 
-    fetch(url)
+    authFetch(url, options)
       .then((response) => {
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
@@ -58,7 +71,7 @@ const apiQueue = {
       .catch((err) => {
         log(`Error calling ${url}: ${err}`);
         if (retries < this.maxRetries) {
-          this.queue.unshift({ url, callback, retries: retries + 1 });
+          this.queue.unshift({ url, callback, retries: retries + 1, options });
           setTimeout(() => this.processNext(), 800 * Math.pow(2, retries));
         } else {
           log(`Failed after ${this.maxRetries} attempts: ${url}`);
@@ -69,18 +82,22 @@ const apiQueue = {
 };
 
 function apiSet(endpoint, value) {
-  apiQueue.add(`/api/${endpoint}?val=${encodeURIComponent(value)}`, (txt) => {
-    log(txt);
-  });
+  apiQueue.add(
+    `/api/${endpoint}?val=${encodeURIComponent(value)}`,
+    (txt) => {
+      log(txt);
+    },
+    { method: "POST" }
+  );
 }
 
 function apiCall(endpoint) {
-  apiQueue.add(endpoint, (txt) => log(txt));
+  apiQueue.add(endpoint, (txt) => log(txt), { method: "POST" });
 }
 
 async function fetchText(url, fallback) {
   try {
-    const resp = await fetch(url);
+    const resp = await authFetch(url);
     if (!resp.ok) return fallback;
     return await resp.text();
   } catch (err) {
@@ -259,7 +276,7 @@ function updateAnimationVisibility(name) {
  * Data loading
  ************************************************/
 async function loadAnimations() {
-  const res = await fetch("/api/listAnimations");
+  const res = await authFetch("/api/listAnimations");
   const data = await res.json();
   const select = document.getElementById("selAnimation");
   if (!select) return;
@@ -283,7 +300,7 @@ async function loadAnimations() {
 }
 
 async function loadPalettes() {
-  const res = await fetch("/api/listPalettes");
+  const res = await authFetch("/api/listPalettes");
   const data = await res.json();
   const select = document.getElementById("paletteSelect");
   if (!select) return;
@@ -303,7 +320,7 @@ async function loadPalettes() {
 async function loadLifeRules() {
   const select = document.getElementById("lifeRule");
   if (!select) return;
-  const res = await fetch("/api/listLifeRules");
+  const res = await authFetch("/api/listLifeRules");
   const data = await res.json();
   select.innerHTML = "";
   data.rules.forEach((rule, i) => {
@@ -433,7 +450,7 @@ async function refreshConnectionStatus() {
   const pill = document.getElementById("connectionPill");
   if (!pill) return;
   try {
-    const res = await fetch("/api/status");
+    const res = await authFetch("/api/status");
     if (!res.ok) throw new Error("status");
     const data = await res.json();
     if (data.wifi && data.wifi.connected) {
@@ -453,6 +470,18 @@ async function refreshConnectionStatus() {
  * Control bindings
  ************************************************/
 function setupControls() {
+  const tokenInput = document.getElementById("apiToken");
+  const saveTokenButton = document.getElementById("saveApiToken");
+  if (tokenInput) {
+    tokenInput.value = getApiToken();
+  }
+  if (saveTokenButton && tokenInput) {
+    saveTokenButton.addEventListener("click", () => {
+      localStorage.setItem("apiToken", tokenInput.value.trim());
+      log("API token saved.");
+    });
+  }
+
   bindSpeedControl();
 
   bindRangePair({

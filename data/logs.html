@@ -25,10 +25,12 @@
     <div class="container">
       <div class="card">
         <h1>System Logs</h1>
-        <p>Real-time logs from the LED Matrix Controller</p>
+        <p>Logs from the LED Matrix Controller (refreshes every 5s)</p>
         
         <div class="card">
           <div class="dropdown-container">
+            <label for="apiToken">API Token:</label>
+            <input type="password" id="apiToken" placeholder="Enter token">
             <label for="logLevel">Log Level:</label>
             <select id="logLevel">
               <option value="verbose">Verbose</option>
@@ -48,54 +50,53 @@
     
     <script>
       document.addEventListener('DOMContentLoaded', function() {
-        const logs = document.getElementById('logs');
+        const logsEl = document.getElementById('logs');
         const btnClearLogs = document.getElementById('btnClearLogs');
         const btnApplyLogLevel = document.getElementById('btnApplyLogLevel');
         const logLevel = document.getElementById('logLevel');
-        
-        // WebSocket connection to receive logs
-        let socket;
-        
-        function connectWebSocket() {
-          socket = new WebSocket(`ws://${window.location.hostname}/ws`);
-          
-          socket.onopen = function() {
-            logs.innerHTML += "<span style='color: var(--primary);'>WebSocket connection established</span><br>";
-          };
-          
-          socket.onmessage = function(event) {
-            logs.innerHTML += event.data + "<br>";
-            logs.scrollTop = logs.scrollHeight;
-          };
-          
-          socket.onclose = function() {
-            logs.innerHTML += "<span style='color: #f87171;'>WebSocket connection closed. Reconnecting in 5 seconds...</span><br>";
-            setTimeout(connectWebSocket, 5000);
-          };
-          
-          socket.onerror = function() {
-            logs.innerHTML += "<span style='color: #f87171;'>WebSocket error occurred</span><br>";
-          };
-        }
-        
-        btnClearLogs.addEventListener('click', function() {
-          logs.innerHTML = "<span style='color: var(--primary);'>Logs cleared</span><br>";
-        });
-        
-        btnApplyLogLevel.addEventListener('click', function() {
-          const selectedLevel = logLevel.value;
-          fetch(`/api/setLogLevel?level=${selectedLevel}`)
-            .then(response => response.text())
-            .then(text => {
-              logs.innerHTML += `<span style='color: var(--primary);'>Log level set to ${selectedLevel}</span><br>`;
+        const tokenInput = document.getElementById('apiToken');
+        let pollInterval = null;
+
+        tokenInput.value = localStorage.getItem('apiToken') || '';
+
+        function fetchLogs() {
+          const level = logLevel.value;
+          fetch('/api/getLogs?level=' + encodeURIComponent(level))
+            .then(function(response) { return response.text(); })
+            .then(function(text) {
+              // Use textContent to prevent XSS
+              logsEl.textContent = text || '(no logs)';
+              logsEl.scrollTop = logsEl.scrollHeight;
             })
-            .catch(error => {
-              logs.innerHTML += `<span style='color: #f87171;'>Error setting log level: ${error.message}</span><br>`;
+            .catch(function(err) {
+              console.error('Error fetching logs:', err);
+            });
+        }
+
+        function startPolling() {
+          if (pollInterval) clearInterval(pollInterval);
+          fetchLogs();
+          pollInterval = setInterval(fetchLogs, 5000);
+        }
+
+        btnClearLogs.addEventListener('click', function() {
+          const token = tokenInput.value.trim();
+          localStorage.setItem('apiToken', token);
+          fetch('/api/clearLogs', {
+            method: 'POST',
+            headers: token ? { 'X-API-Key': token } : {}
+          })
+            .then(function() { fetchLogs(); })
+            .catch(function(err) {
+              console.error('Error clearing logs:', err);
             });
         });
-        
-        // Initial connection
-        connectWebSocket();
+
+        btnApplyLogLevel.addEventListener('click', function() {
+          fetchLogs();
+        });
+
+        startPolling();
       });
     </script>
   </body>

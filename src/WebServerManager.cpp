@@ -16,9 +16,9 @@
 #include "LogManager.h"   // Include LogManager for system logs
 #include <ESPmDNS.h>       // mDNS for hostname resolution
 #include <WiFi.h>
+#include <stdio.h>
 
-// Format SPIFFS if mount fails
-#define FORMAT_SPIFFS_IF_FAILED true
+static bool g_spiffsMounted = false;
 
 // If you have a global LEDManager instance in main.cpp:
 //   LEDManager ledManager;
@@ -31,6 +31,48 @@ static bool acquireLEDManager(uint32_t timeout = 1000) {
 
 static void releaseLEDManager() {
     ledManager.endExclusiveAccess();
+}
+
+static bool ensureSpiffsMounted() {
+    if (g_spiffsMounted) {
+        return true;
+    }
+    g_spiffsMounted = SPIFFS.begin(false);
+    return g_spiffsMounted;
+}
+
+static String readApiTokenHeader(AsyncWebServerRequest* request) {
+    if (request->hasHeader("X-API-Key")) {
+        return request->getHeader("X-API-Key")->value();
+    }
+    if (request->hasHeader("Authorization")) {
+        String auth = request->getHeader("Authorization")->value();
+        if (auth.startsWith("Bearer ")) {
+            return auth.substring(7);
+        }
+    }
+    return "";
+}
+
+static bool requireApiToken(AsyncWebServerRequest* request) {
+    String provided = readApiTokenHeader(request);
+    if (provided.length() > 0 && String(apiToken) == provided) {
+        return true;
+    }
+    request->send(401, "text/plain", "Unauthorized: missing or invalid API token");
+    return false;
+}
+
+static bool isValidIPv4(const String& value) {
+    int a, b, c, d;
+    char dot1, dot2, dot3;
+    if (sscanf(value.c_str(), "%d%c%d%c%d%c%d", &a, &dot1, &b, &dot2, &c, &dot3, &d) != 7) {
+        return false;
+    }
+    if (dot1 != '.' || dot2 != '.' || dot3 != '.') {
+        return false;
+    }
+    return a >= 0 && a <= 255 && b >= 0 && b <= 255 && c >= 0 && c <= 255 && d >= 0 && d <= 255;
 }
 
 // Constructor
@@ -48,7 +90,7 @@ bool WebServerManager::initSPIFFS() {
     Serial.printf("Free heap before SPIFFS init: %d bytes\n", ESP.getFreeHeap());
     
     // Attempt to mount SPIFFS
-    if (!SPIFFS.begin(FORMAT_SPIFFS_IF_FAILED)) {
+    if (!ensureSpiffsMounted()) {
         Serial.println("ERROR: SPIFFS mount failed!");
         return false;
     }
@@ -107,6 +149,9 @@ void WebServerManager::begin() {
      ****************************************************/
     _server.on("/update", HTTP_POST,
         [](AsyncWebServerRequest *request) {
+            if (!requireApiToken(request)) {
+                return;
+            }
             bool error = Update.hasError();
             request->send(200, "text/plain", error ? "FAIL" : "OK");
             Serial.println("Firmware update complete, restarting in 1 second...");
@@ -116,6 +161,9 @@ void WebServerManager::begin() {
         [](AsyncWebServerRequest *request, const String &filename, size_t index,
            uint8_t *data, size_t len, bool final) 
         {
+            if (!requireApiToken(request)) {
+                return;
+            }
             if (!index) {
                 Serial.printf("Firmware Update Start: %s\n", filename.c_str());
                 if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) {
@@ -140,6 +188,9 @@ void WebServerManager::begin() {
      ****************************************************/
     _server.on("/updatefs", HTTP_POST,
         [](AsyncWebServerRequest *request) {
+            if (!requireApiToken(request)) {
+                return;
+            }
             bool error = Update.hasError();
             request->send(200, "text/plain", error ? "FS Update Failed" : "FS Update OK");
             Serial.println("SPIFFS update complete, restarting in 1 second...");
@@ -149,6 +200,9 @@ void WebServerManager::begin() {
         [](AsyncWebServerRequest *request, const String &filename, size_t index,
            uint8_t *data, size_t len, bool final) 
         {
+            if (!requireApiToken(request)) {
+                return;
+            }
             if (!index) {
                 Serial.printf("SPIFFS Update Start: %s\n", filename.c_str());
                 if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_SPIFFS)) {
@@ -171,7 +225,10 @@ void WebServerManager::begin() {
     /****************************************************
      * RebootNow route
      ****************************************************/
-    _server.on("/rebootNow", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/rebootNow", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         request->send(200, "text/plain", "Rebooting...");
         Serial.println("Manual reboot requested, restarting in 1 second...");
         delay(1000);
@@ -198,7 +255,10 @@ void WebServerManager::begin() {
      /****************************************************
      * Set Animations
      ****************************************************/
-    _server.on("/api/setAnimation", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setAnimation", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         // Reset watchdog timer at start of request
         esp_task_wdt_reset();
         
@@ -279,7 +339,10 @@ void WebServerManager::begin() {
     * setPalette => expects ?val=<0-based index>
     * Example: /api/setPalette?val=2
     ****************************************************/
-    _server.on("/api/setPalette", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setPalette", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
             return;
@@ -335,7 +398,10 @@ void WebServerManager::begin() {
     });
 
     // 5) setBrightness => param "val" (0..255)
-    _server.on("/api/setBrightness", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setBrightness", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
             return;
@@ -374,7 +440,10 @@ void WebServerManager::begin() {
     });
 
     // 7) setTailLength => param "val" (1..30)
-    _server.on("/api/setTailLength", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setTailLength", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
             return;
@@ -413,7 +482,10 @@ void WebServerManager::begin() {
     });
 
     // 9) setFadeAmount => param "val" (0..255)
-    _server.on("/api/setFadeAmount", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setFadeAmount", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
             return;
@@ -449,7 +521,10 @@ void WebServerManager::begin() {
     });
 
     // 11) setSpawnRate => param "val" (0..1 float)
-    _server.on("/api/setSpawnRate", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setSpawnRate", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
             return;
@@ -488,7 +563,10 @@ void WebServerManager::begin() {
     });
 
     // 13) setMaxFlakes => param "val" (10..500)
-    _server.on("/api/setMaxFlakes", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setMaxFlakes", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
             return;
@@ -527,7 +605,10 @@ void WebServerManager::begin() {
     });
 
     // 15) swapPanels
-    _server.on("/api/swapPanels", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/swapPanels", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
             return;
@@ -540,7 +621,10 @@ void WebServerManager::begin() {
     });
 
     // 16) setPanelOrder => param "val" (left|right)
-    _server.on("/api/setPanelOrder", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setPanelOrder", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
             return;
@@ -578,7 +662,10 @@ void WebServerManager::begin() {
     });
 
     // 17) rotatePanel1 => param "val" in {0,90,180,270}
-    _server.on("/api/rotatePanel1", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/rotatePanel1", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
             return;
@@ -604,7 +691,10 @@ void WebServerManager::begin() {
     });
 
     // 18) rotatePanel2 => param "val" in {0,90,180,270}
-    _server.on("/api/rotatePanel2", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/rotatePanel2", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
             return;
@@ -630,7 +720,10 @@ void WebServerManager::begin() {
     });
 
     // 18.5) rotatePanel3 => param "val" in {0,90,180,270}
-    _server.on("/api/rotatePanel3", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/rotatePanel3", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
             return;
@@ -678,7 +771,10 @@ void WebServerManager::begin() {
     });
 
     // 19) setSpeed => param "val" in milliseconds
-    _server.on("/api/setSpeed", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setSpeed", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
             return;
@@ -729,7 +825,10 @@ void WebServerManager::begin() {
         request->send(200, "application/json", json);
     });
 
-    _server.on("/api/setLifeRule", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setLifeRule", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!request->hasParam("val")) {
             request->send(400, "text/plain", "Missing val param");
             return;
@@ -743,7 +842,10 @@ void WebServerManager::begin() {
         request->send(200, "text/plain", String(ledManager.getLifeRuleIndex()));
     });
 
-    _server.on("/api/setLifeDensity", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setLifeDensity", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!request->hasParam("val")) {
             request->send(400, "text/plain", "Missing val param");
             return;
@@ -759,7 +861,10 @@ void WebServerManager::begin() {
         request->send(200, "text/plain", String(ledManager.getLifeSeedDensity()));
     });
 
-    _server.on("/api/setLifeWrap", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setLifeWrap", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!request->hasParam("val")) {
             request->send(400, "text/plain", "Missing val param");
             return;
@@ -774,7 +879,10 @@ void WebServerManager::begin() {
         request->send(200, "text/plain", ledManager.getLifeWrap() ? "1" : "0");
     });
 
-    _server.on("/api/setLifeStagnation", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setLifeStagnation", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!request->hasParam("val")) {
             request->send(400, "text/plain", "Missing val param");
             return;
@@ -788,7 +896,10 @@ void WebServerManager::begin() {
         request->send(200, "text/plain", String(ledManager.getLifeStagnationLimit()));
     });
 
-    _server.on("/api/setLifeColorMode", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setLifeColorMode", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!request->hasParam("val")) {
             request->send(400, "text/plain", "Missing val param");
             return;
@@ -802,13 +913,19 @@ void WebServerManager::begin() {
         request->send(200, "text/plain", String(ledManager.getLifeColorMode()));
     });
 
-    _server.on("/api/lifeReseed", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/lifeReseed", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         ledManager.lifeReseed();
         request->send(200, "text/plain", "Life reseeded");
     });
 
     // Langton's Ant settings
-    _server.on("/api/setAntRule", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setAntRule", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!request->hasParam("val")) {
             request->send(400, "text/plain", "Missing val param");
             return;
@@ -821,7 +938,10 @@ void WebServerManager::begin() {
         request->send(200, "text/plain", ledManager.getAntRule());
     });
 
-    _server.on("/api/setAntCount", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setAntCount", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!request->hasParam("val")) {
             request->send(400, "text/plain", "Missing val param");
             return;
@@ -835,7 +955,10 @@ void WebServerManager::begin() {
         request->send(200, "text/plain", String(ledManager.getAntCount()));
     });
 
-    _server.on("/api/setAntSteps", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setAntSteps", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!request->hasParam("val")) {
             request->send(400, "text/plain", "Missing val param");
             return;
@@ -849,7 +972,10 @@ void WebServerManager::begin() {
         request->send(200, "text/plain", String(ledManager.getAntSteps()));
     });
 
-    _server.on("/api/setAntWrap", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setAntWrap", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!request->hasParam("val")) {
             request->send(400, "text/plain", "Missing val param");
             return;
@@ -865,7 +991,10 @@ void WebServerManager::begin() {
     });
 
     // Sierpinski carpet settings
-    _server.on("/api/setCarpetDepth", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setCarpetDepth", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!request->hasParam("val")) {
             request->send(400, "text/plain", "Missing val param");
             return;
@@ -879,7 +1008,10 @@ void WebServerManager::begin() {
         request->send(200, "text/plain", String(ledManager.getCarpetDepth()));
     });
 
-    _server.on("/api/setCarpetInvert", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setCarpetInvert", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!request->hasParam("val")) {
             request->send(400, "text/plain", "Missing val param");
             return;
@@ -894,7 +1026,10 @@ void WebServerManager::begin() {
         request->send(200, "text/plain", ledManager.getCarpetInvert() ? "1" : "0");
     });
 
-    _server.on("/api/setCarpetShift", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setCarpetShift", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!request->hasParam("val")) {
             request->send(400, "text/plain", "Missing val param");
             return;
@@ -909,7 +1044,10 @@ void WebServerManager::begin() {
     });
 
     // Firework settings
-    _server.on("/api/setFireworkMax", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setFireworkMax", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!request->hasParam("val")) {
             request->send(400, "text/plain", "Missing val param");
             return;
@@ -923,7 +1061,10 @@ void WebServerManager::begin() {
         request->send(200, "text/plain", String(ledManager.getFireworkMax()));
     });
 
-    _server.on("/api/setFireworkParticles", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setFireworkParticles", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!request->hasParam("val")) {
             request->send(400, "text/plain", "Missing val param");
             return;
@@ -937,7 +1078,10 @@ void WebServerManager::begin() {
         request->send(200, "text/plain", String(ledManager.getFireworkParticles()));
     });
 
-    _server.on("/api/setFireworkGravity", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setFireworkGravity", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!request->hasParam("val")) {
             request->send(400, "text/plain", "Missing val param");
             return;
@@ -951,7 +1095,10 @@ void WebServerManager::begin() {
         request->send(200, "text/plain", String(ledManager.getFireworkGravity(), 3));
     });
 
-    _server.on("/api/setFireworkLaunch", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setFireworkLaunch", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!request->hasParam("val")) {
             request->send(400, "text/plain", "Missing val param");
             return;
@@ -966,7 +1113,10 @@ void WebServerManager::begin() {
     });
 
     // Rainbow wave settings
-    _server.on("/api/setRainbowHueScale", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setRainbowHueScale", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!request->hasParam("val")) {
             request->send(400, "text/plain", "Missing val param");
             return;
@@ -1014,13 +1164,20 @@ void WebServerManager::begin() {
      * Network settings
      ****************************************************/
     // Set network mode: dhcp or static
-    _server.on("/api/setNetworkMode", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setNetworkMode", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if(!request->hasParam("val")){
             request->send(400, "text/plain", "Missing val param (dhcp|static)");
             return;
         }
         String mode = request->getParam("val")->value();
-        if(!SPIFFS.begin(true)){
+        if (!mode.equalsIgnoreCase("dhcp") && !mode.equalsIgnoreCase("static")) {
+            request->send(400, "text/plain", "Invalid mode. Use dhcp or static");
+            return;
+        }
+        if(!ensureSpiffsMounted()){
             request->send(500,"text/plain","SPIFFS mount failed");
             return;
         }
@@ -1052,14 +1209,21 @@ void WebServerManager::begin() {
     });
 
     // Set static IP parameters
-    _server.on("/api/setStaticIP", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setStaticIP", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         auto getp=[&](const char* k)->String{ return request->hasParam(k)? request->getParam(k)->value():String(""); };
         String ip=getp("ip"), gw=getp("gw"), mask=getp("mask"), dns=getp("dns");
         if(ip==""||gw==""||mask==""||dns==""){
             request->send(400, "text/plain", "Missing params ip,gw,mask,dns");
             return;
         }
-        if(!SPIFFS.begin(true)){
+        if (!isValidIPv4(ip) || !isValidIPv4(gw) || !isValidIPv4(mask) || !isValidIPv4(dns)) {
+            request->send(400, "text/plain", "Invalid IP format");
+            return;
+        }
+        if(!ensureSpiffsMounted()){
             request->send(500,"text/plain","SPIFFS mount failed");
             return;
         }
@@ -1076,7 +1240,7 @@ void WebServerManager::begin() {
 
     // Get network config
     _server.on("/api/getNetwork", HTTP_GET, [](AsyncWebServerRequest *request){
-        if(!SPIFFS.begin(true)){
+        if(!ensureSpiffsMounted()){
             request->send(500,"text/plain","SPIFFS mount failed");
             return;
         }
@@ -1101,7 +1265,10 @@ void WebServerManager::begin() {
     });
 
     // 21) setPanelCount => param "val" (1..8)
-    _server.on("/api/setPanelCount", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/setPanelCount", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
             return;
@@ -1117,6 +1284,15 @@ void WebServerManager::begin() {
         if(count > 8) count = 8;
         
         ledManager.setPanelCount(count);
+
+        if (ensureSpiffsMounted()) {
+            File f = SPIFFS.open("/panel.cfg", "w");
+            if (f) {
+                f.printf("count=%d\n", count);
+                f.close();
+            }
+        }
+
         String msg = "Panel count set to " + String(count);
         
         releaseLEDManager();
@@ -1139,7 +1315,10 @@ void WebServerManager::begin() {
     });
 
     // 23) identifyPanels => flash each panel in sequence
-    _server.on("/api/identifyPanels", HTTP_GET, [](AsyncWebServerRequest *request){
+    _server.on("/api/identifyPanels", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!requireApiToken(request)) {
+            return;
+        }
         if (!acquireLEDManager(500)) {
             request->send(503, "text/plain", "Server busy, try again later");
             return;
@@ -1180,7 +1359,10 @@ void WebServerManager::begin() {
     });
     
     // Clear system logs
-    _server.on("/api/clearLogs", HTTP_GET, [](AsyncWebServerRequest *request) {
+    _server.on("/api/clearLogs", HTTP_POST, [](AsyncWebServerRequest *request) {
+        if (!requireApiToken(request)) {
+            return;
+        }
         try {
             LogManager::getInstance().clearLogs();
             request->send(200, "text/plain", "Logs cleared successfully");
